@@ -17,7 +17,7 @@ WizardStepBase {
     required property var wizardContainer
 
     title: qsTr("Customisation: Raspberry Pi Connect")
-    subtitle: qsTr("Sign in to receive a token and enable Raspberry Pi Connect.")
+    subtitle: qsTr("Sign in to receive a token and enable Raspberry Pi Connect")
     showSkipButton: true
     nextButtonAccessibleDescription: qsTr("Save Raspberry Pi Connect settings and continue to next customisation step")
     backButtonAccessibleDescription: qsTr("Return to previous step")
@@ -118,6 +118,22 @@ WizardStepBase {
     property bool tokenFieldEnabled: false
     property bool tokenFromBrowser: false
     property bool isValid: false
+    
+    // Validation: allow proceed when:
+    // - Connect is disabled (pill unchecked), or
+    // - Connect is enabled AND we have a valid token (from browser or manually entered)
+    nextButtonEnabled: {
+        if (!useTokenPill.checked) {
+            return true  // Not enabling Connect, can proceed
+        }
+        // Connect is enabled - need a valid token
+        if (root.tokenFromBrowser && root.connectToken.length > 0) {
+            return true  // Token received from browser flow (already validated)
+        }
+        // Manual token entry - check we have something entered
+        var token = root.connectToken.trim()
+        return token.length > 0
+    }
     
     // Countdown timer
     Timer {
