@@ -30,8 +30,18 @@ BaseDialog {
         popup.close()
     }
 
+    // Dynamic width that updates when language/text changes
+    implicitWidth: Math.max(
+        chkBeep.naturalWidth,
+        chkEject.naturalWidth,
+        chkTelemetry.naturalWidth,
+        chkDisableWarnings.naturalWidth,
+        editRepoButton.naturalWidth
+    ) + Style.cardPadding * 4  // Double padding: contentLayout + optionsLayout margins
+    
     // Register focus groups when component is ready
     Component.onCompleted: {
+        // Register focus groups
         registerFocusGroup("header", function(){ 
             // Only include header text when screen reader is active (otherwise it's not focusable)
             if (popup.imageWriter && popup.imageWriter.isScreenReaderActive()) {
@@ -86,8 +96,11 @@ BaseDialog {
             ImOptionPill {
                 id: chkBeep
                 text: qsTr("Play sound when finished")
-                accessibleDescription: qsTr("Play an audio notification when the image write process completes")
+                accessibleDescription: imageWriter.isBeepAvailable() 
+                    ? qsTr("Play an audio notification when the image write process completes")
+                    : qsTr("Audio notification unavailable - no viable audio player found on this system")
                 Layout.fillWidth: true
+                enabled: imageWriter.isBeepAvailable()
                 Component.onCompleted: {
                     focusItem.activeFocusOnTab = true
                 }
@@ -212,9 +225,24 @@ BaseDialog {
         Layout.fillHeight: true
     }
 
+    // Version display - only shown when window has no decorations (no title bar)
+    Text {
+        id: versionText
+        text: qsTr("Version: %1").arg(imageWriter.constantVersion())
+        font.pixelSize: Style.fontSizeCaption
+        font.family: Style.fontFamily
+        color: Style.textDescriptionColor
+        Layout.fillWidth: true
+        horizontalAlignment: Text.AlignHCenter
+        visible: !imageWriter.hasWindowDecorations()
+        Layout.bottomMargin: Style.spacingSmall
+    }
+
     // Buttons section with background
     Rectangle {
         Layout.fillWidth: true
+        // Ensure minimum width accommodates buttons
+        Layout.minimumWidth: cancelButton.implicitWidth + saveButton.implicitWidth + Style.spacingMedium * 2 + Style.cardPadding
         Layout.preferredHeight: buttonRow.implicitHeight + Style.cardPadding
         color: Style.titleBackgroundColor
 
@@ -301,7 +329,8 @@ BaseDialog {
             isInitializing = true;
             
             // Load current settings from ImageWriter
-            chkBeep.checked = imageWriter.getBoolSetting("beep");
+            // Only enable beep if it's both saved as enabled AND available on this system
+            chkBeep.checked = imageWriter.getBoolSetting("beep") && imageWriter.isBeepAvailable();
             chkEject.checked = imageWriter.getBoolSetting("eject");
             chkTelemetry.checked = imageWriter.getBoolSetting("telemetry");
             // Do not load from QSettings; keep ephemeral
@@ -324,7 +353,8 @@ BaseDialog {
 
     function applySettings() {
         // Save settings to ImageWriter
-        imageWriter.setSetting("beep", chkBeep.checked);
+        // Only save beep as enabled if it's actually available on this system
+        imageWriter.setSetting("beep", chkBeep.checked && imageWriter.isBeepAvailable());
         imageWriter.setSetting("eject", chkEject.checked);
         imageWriter.setSetting("telemetry", chkTelemetry.checked);
         imageWriter.setSetting("secureboot_rsa_key", rsaKeyPath.text);

@@ -46,6 +46,8 @@ public:
         // Drive operations
         DriveListPoll,         // Time for drive enumeration
         DriveOpen,             // Time to open/prepare drive for writing (overall)
+        DriveAuthorization,    // Time for privilege escalation (macOS authopen, Linux sudo)
+        DriveMbrZeroing,       // Time to zero first/last MB of drive (includes sync)
         DirectIOAttempt,       // Direct I/O attempt result (success/failure with error code)
         DriveUnmount,          // Time to unmount drive partitions (Linux/macOS)
         DriveUnmountVolumes,   // Time to unmount/lock volumes (Windows)
@@ -62,7 +64,7 @@ public:
         // Memory management
         MemoryAllocation,      // Time for large memory allocations
         BufferResize,          // Time to resize buffers
-        PageCacheFlush,        // Time to flush system page cache
+        PeriodicSync,          // Periodic fsync during write (skipped when direct I/O enabled)
         RingBufferStarvation,  // Ring buffer starvation stats (producer/consumer waits)
         
         // Image processing
@@ -76,9 +78,25 @@ public:
         PipelineRingBufferWaitTime,// Total time waiting for ring buffer data (input buffer)
         WriteRingBufferStats,      // Write ring buffer stall statistics (decompress->write)
         
+        // Write timing breakdown (detailed instrumentation for hypothesis testing)
+        WriteTimingBreakdown,      // Detailed breakdown: syscall time, hash wait, sync time
+        WriteSizeDistribution,     // Distribution of write chunk sizes
+        WriteAfterSyncImpact,      // Throughput comparison before/after sync calls
+        AsyncIOConfig,             // Async I/O configuration (enabled, supported, queue depth)
+        AsyncIOTiming,             // Async I/O wall-clock time and per-write latency stats
+        
         // Cycle boundaries (for multi-write sessions)
         CycleStart,            // Start of a new imaging cycle (metadata: image name, device)
         CycleEnd,              // End of an imaging cycle (metadata: success/failure reason)
+        
+        // Stall detection and recovery
+        ProgressStall,         // Pipeline stalled - no progress for extended period
+        MemoryAllocationFailure, // Failed to allocate memory for buffers
+        DeviceIOTimeout,       // Device/OS failed to complete writes within timeout
+        QueueDepthReduction,   // Async queue depth reduced due to high latency (metadata: old->new depth)
+        SyncFallbackActivated, // Switched from async to sync I/O mode
+        DrainAndHotSwap,       // Drained async queue and hot-swapped to sync (metadata: pending count, drain time)
+        WatchdogRecovery,      // Watchdog triggered recovery action (metadata: action taken)
         
         // Customisation
         Customisation,         // Time to apply customisation (config, firstrun, etc.)
@@ -160,6 +178,19 @@ public:
         QString imagerBinarySha256;     // SHA256 of the executable binary
         QString qtVersion;              // Qt runtime version
         QString qtBuildVersion;         // Qt version used at compile time
+        
+        // Write configuration (helps diagnose performance issues)
+        bool directIOEnabled;           // True if direct I/O (F_NOCACHE/O_DIRECT) is enabled
+        bool periodicSyncEnabled;       // True if periodic sync is enabled (false if direct I/O)
+        qint64 syncIntervalBytes;       // Sync interval in bytes (0 if periodic sync disabled)
+        qint64 syncIntervalMs;          // Sync interval in milliseconds
+        QString memoryTier;             // Memory tier description (e.g., "High memory (16384MB)")
+        
+        // Buffer configuration (helps diagnose buffer-related issues)
+        qint64 writeBufferSize;         // Size of each write buffer in bytes
+        qint64 inputBufferSize;         // Size of input (download) buffer in bytes
+        int inputRingBufferSlots;       // Number of slots in input ring buffer
+        int writeRingBufferSlots;       // Number of slots in write ring buffer
     };
 
     explicit PerformanceStats(QObject *parent = nullptr);
@@ -179,6 +210,12 @@ public:
      * Call after startSession() to add hardware context
      */
     void setSystemInfo(const SystemInfo &info);
+    
+    /**
+     * @brief Update the direct I/O enabled state after device is opened
+     * This is called when the actual direct I/O state is known (after file open)
+     */
+    void updateDirectIOEnabled(bool enabled);
     
     /**
      * @brief End the current imaging cycle

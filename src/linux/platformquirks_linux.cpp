@@ -10,17 +10,113 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
 #include <fcntl.h>
+#include <pthread.h>
+#include <atomic>
+#include <net/if_arp.h>
 #include <QDebug>
 #include <QProcess>
 #include <QFile>
+#include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
 #include <QCryptographicHash>
 #include <vector>
+
+namespace {
+    // Network monitoring state
+    int g_netlinkSocket = -1;
+    pthread_t g_monitorThread;
+    std::atomic<bool> g_monitorRunning{false};
+    int g_stopPipe[2] = {-1, -1};  // Pipe to signal thread to stop
+    PlatformQuirks::NetworkStatusCallback g_networkCallback = nullptr;
+    pthread_mutex_t g_callbackMutex = PTHREAD_MUTEX_INITIALIZER;
+    
+    void* netlinkMonitorThread(void* arg) {
+        (void)arg;
+        
+        char buf[4096];
+        struct iovec iov = { buf, sizeof(buf) };
+        struct sockaddr_nl sa;
+        struct msghdr msg = { &sa, sizeof(sa), &iov, 1, nullptr, 0, 0 };
+        
+        fd_set readfds;
+        int maxfd = (g_netlinkSocket > g_stopPipe[0]) ? g_netlinkSocket : g_stopPipe[0];
+        
+        while (g_monitorRunning.load()) {
+            FD_ZERO(&readfds);
+            FD_SET(g_netlinkSocket, &readfds);
+            FD_SET(g_stopPipe[0], &readfds);
+            
+            // Wait for events with 1 second timeout
+            struct timeval tv = { 1, 0 };
+            int ret = select(maxfd + 1, &readfds, nullptr, nullptr, &tv);
+            
+            if (ret < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            
+            // Check if we should stop
+            if (FD_ISSET(g_stopPipe[0], &readfds)) {
+                break;
+            }
+            
+            if (ret == 0) continue;  // Timeout
+            
+            if (FD_ISSET(g_netlinkSocket, &readfds)) {
+                ssize_t len = recvmsg(g_netlinkSocket, &msg, 0);
+                if (len < 0) {
+                    if (errno == EINTR) continue;
+                    break;
+                }
+                
+                // Parse netlink messages
+                for (struct nlmsghdr* nh = (struct nlmsghdr*)buf;
+                     NLMSG_OK(nh, len);
+                     nh = NLMSG_NEXT(nh, len)) {
+                    
+                    if (nh->nlmsg_type == NLMSG_DONE) break;
+                    if (nh->nlmsg_type == NLMSG_ERROR) continue;
+                    
+                    // We're interested in link up/down events
+                    if (nh->nlmsg_type == RTM_NEWLINK || nh->nlmsg_type == RTM_DELLINK) {
+                        // Validate payload size before accessing ifinfomsg
+                        if (NLMSG_PAYLOAD(nh, 0) < sizeof(struct ifinfomsg)) {
+                            continue;  // Malformed message, skip
+                        }
+                        
+                        struct ifinfomsg* ifi = (struct ifinfomsg*)NLMSG_DATA(nh);
+                        
+                        // Skip loopback interface
+                        if (ifi->ifi_type == ARPHRD_LOOPBACK) continue;
+                        
+                        bool linkUp = (ifi->ifi_flags & IFF_UP) && (ifi->ifi_flags & IFF_RUNNING);
+                        fprintf(stderr, "Network link change detected: interface %d, up=%d\n", 
+                                ifi->ifi_index, linkUp);
+                        
+                        // Check overall connectivity and invoke callback under mutex
+                        pthread_mutex_lock(&g_callbackMutex);
+                        if (g_networkCallback) {
+                            bool isAvailable = PlatformQuirks::hasNetworkConnectivity();
+                            g_networkCallback(isAvailable);
+                        }
+                        pthread_mutex_unlock(&g_callbackMutex);
+                    }
+                }
+            }
+        }
+        
+        return nullptr;
+    }
+}
 
 namespace PlatformQuirks {
 
@@ -151,26 +247,97 @@ void applyQuirks() {
     }
 }
 
+namespace {
+    // Sound files in order of preference (Freedesktop sound theme)
+    static const char* const SOUND_FILES[] = {
+        "/usr/share/sounds/freedesktop/stereo/complete.oga",  // Completion notification
+        "/usr/share/sounds/freedesktop/stereo/bell.oga",      // Bell/alert
+        nullptr
+    };
+    
+    // Find the first available sound file
+    static const char* findSoundFile() {
+        for (int i = 0; SOUND_FILES[i] != nullptr; i++) {
+            if (access(SOUND_FILES[i], R_OK) == 0) {
+                return SOUND_FILES[i];
+            }
+        }
+        return nullptr;
+    }
+    
+    static bool commandExists(const char* cmd) {
+        return !QStandardPaths::findExecutable(QString::fromLatin1(cmd)).isEmpty();
+    }
+}
+
+bool isBeepAvailable() {
+    // canberra-gtk-play uses the system sound theme - no file needed
+    if (commandExists("canberra-gtk-play")) {
+        return true;
+    }
+    
+    // Other mechanisms need a sound file
+    const char* soundFile = findSoundFile();
+    if (soundFile) {
+        if (commandExists("pw-play") || commandExists("aplay") || commandExists("pactl")) {
+            return true;
+        }
+    }
+    
+    // PC speaker beep - no dependencies
+    if (commandExists("beep")) {
+        return true;
+    }
+    
+    qDebug() << "No beep mechanism available on this Linux system";
+    return false;
+}
+
 void beep() {
-    // Try multiple Linux beep mechanisms in order of preference
-    
-    // 1. Try pactl (PulseAudio) beep - most common on modern Linux desktop systems
-    if (QProcess::execute("pactl", QStringList() << "upload-sample" << "/usr/share/sounds/alsa/Front_Left.wav" << "beep") == 0) {
-        QProcess::execute("pactl", QStringList() << "play-sample" << "beep");
-        return;
+    // 1. canberra-gtk-play (XDG Sound Theme - best option, uses system theme)
+    if (commandExists("canberra-gtk-play")) {
+        if (QProcess::execute("canberra-gtk-play", {"--id=complete"}) == 0) {
+            return;
+        }
     }
     
-    // 2. Try system bell via echo (works on most terminals)
-    if (QProcess::execute("echo", QStringList() << "-e" << "\\a") == 0) {
-        return;
+    // Find a sound file for the remaining mechanisms
+    const char* soundFile = findSoundFile();
+    
+    if (soundFile) {
+        // 2. pw-play (PipeWire - default on modern distros including Raspberry Pi OS)
+        if (commandExists("pw-play")) {
+            if (QProcess::execute("pw-play", {soundFile}) == 0) {
+                return;
+            }
+        }
+        
+        // 3. aplay (ALSA - widely available, but only supports WAV)
+        if (commandExists("aplay")) {
+            if (QProcess::execute("aplay", {"-q", soundFile}) == 0) {
+                return;
+            }
+        }
+        
+        // 4. pactl (PulseAudio - legacy systems)
+        if (commandExists("pactl")) {
+            if (QProcess::execute("pactl", {"upload-sample", soundFile, "imager-beep"}) == 0) {
+                QProcess::execute("pactl", {"play-sample", "imager-beep"});
+                return;
+            }
+        }
     }
     
-    // 3. Try beep command if available
-    if (QProcess::execute("beep", QStringList()) == 0) {
-        return;
+    // 5. PC speaker beep command
+    if (commandExists("beep")) {
+        if (QProcess::execute("beep", {}) == 0) {
+            return;
+        }
     }
     
-    // 4. Fallback: just log that beep was requested
+    // 6. System bell via echo (rarely works in GUI environments, but worth trying)
+    QProcess::execute("echo", {"-e", "\\a"});
+    
     qDebug() << "Beep requested but no suitable audio mechanism found on this Linux system";
 }
 
@@ -245,6 +412,96 @@ bool isNetworkReady() {
     }
     
     return timeIsSynced;
+}
+
+void startNetworkMonitoring(NetworkStatusCallback callback) {
+    // Stop any existing monitoring
+    stopNetworkMonitoring();
+    
+    // Set callback under mutex
+    pthread_mutex_lock(&g_callbackMutex);
+    g_networkCallback = callback;
+    pthread_mutex_unlock(&g_callbackMutex);
+    
+    // Create netlink socket for routing/link messages
+    g_netlinkSocket = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    if (g_netlinkSocket < 0) {
+        fprintf(stderr, "Failed to create netlink socket: %s\n", strerror(errno));
+        return;
+    }
+    
+    // Bind to multicast group for link changes
+    struct sockaddr_nl addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.nl_family = AF_NETLINK;
+    addr.nl_groups = RTMGRP_LINK;  // Subscribe to link up/down events
+    
+    if (bind(g_netlinkSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        fprintf(stderr, "Failed to bind netlink socket: %s\n", strerror(errno));
+        close(g_netlinkSocket);
+        g_netlinkSocket = -1;
+        return;
+    }
+    
+    // Create pipe to signal thread to stop
+    if (pipe(g_stopPipe) < 0) {
+        fprintf(stderr, "Failed to create stop pipe: %s\n", strerror(errno));
+        close(g_netlinkSocket);
+        g_netlinkSocket = -1;
+        return;
+    }
+    
+    // Start monitoring thread
+    g_monitorRunning.store(true);
+    if (pthread_create(&g_monitorThread, nullptr, netlinkMonitorThread, nullptr) != 0) {
+        fprintf(stderr, "Failed to create monitor thread: %s\n", strerror(errno));
+        close(g_netlinkSocket);
+        g_netlinkSocket = -1;
+        close(g_stopPipe[0]);
+        close(g_stopPipe[1]);
+        g_stopPipe[0] = g_stopPipe[1] = -1;
+        g_monitorRunning.store(false);
+        return;
+    }
+    
+    fprintf(stderr, "Network monitoring started (netlink)\n");
+}
+
+void stopNetworkMonitoring() {
+    if (g_monitorRunning.load()) {
+        g_monitorRunning.store(false);
+        
+        // Signal thread to stop
+        if (g_stopPipe[1] >= 0) {
+            char c = 'x';
+            ssize_t unused = write(g_stopPipe[1], &c, 1);
+            (void)unused;
+        }
+        
+        // Wait for thread to finish
+        pthread_join(g_monitorThread, nullptr);
+        
+        // Clean up
+        if (g_netlinkSocket >= 0) {
+            close(g_netlinkSocket);
+            g_netlinkSocket = -1;
+        }
+        if (g_stopPipe[0] >= 0) {
+            close(g_stopPipe[0]);
+            g_stopPipe[0] = -1;
+        }
+        if (g_stopPipe[1] >= 0) {
+            close(g_stopPipe[1]);
+            g_stopPipe[1] = -1;
+        }
+        
+        fprintf(stderr, "Network monitoring stopped\n");
+    }
+    
+    // Clear callback under mutex to prevent race with monitor thread
+    pthread_mutex_lock(&g_callbackMutex);
+    g_networkCallback = nullptr;
+    pthread_mutex_unlock(&g_callbackMutex);
 }
 
 void bringWindowToForeground(void* windowHandle) {
@@ -438,6 +695,10 @@ bool launchDetached(const QString& program, const QStringList& arguments) {
         }
         
         // Grandchild - build argv and exec
+        
+        // Clear AppImage environment before running external tools
+        clearAppImageEnvironment();
+        
         QByteArray programBytes = program.toUtf8();
         std::vector<QByteArray> argBytes;
         std::vector<char*> argv;
@@ -576,6 +837,63 @@ bool isScrollInverted(bool qtInvertedFlag) {
     // On Linux, Qt's inverted flag behavior varies by desktop environment.
     // Most modern DEs (GNOME, KDE) correctly report it, so we pass through.
     return qtInvertedFlag;
+}
+
+QString getWriteDevicePath(const QString& devicePath) {
+    // Linux uses the same device path for both buffered and direct I/O.
+    // Direct I/O is controlled via O_DIRECT flag, not device path.
+    return devicePath;
+}
+
+QString getEjectDevicePath(const QString& devicePath) {
+    // No path transformation needed on Linux.
+    return devicePath;
+}
+
+const char* findCACertBundle()
+{
+    // Common CA certificate bundle paths across Linux distributions.
+    // AppImages and other portable distributions bundle libcurl with a
+    // hardcoded CA certificate path from the build system. When run on a
+    // different distribution, this path may not exist, causing SSL/TLS
+    // connections to fail.
+    //
+    // Order matters: more common/modern paths first for faster lookup.
+    static const char* caPaths[] = {
+        "/etc/ssl/certs/ca-certificates.crt",                    // Debian, Ubuntu, Arch, Gentoo
+        "/etc/pki/tls/certs/ca-bundle.crt",                      // Fedora, RHEL, CentOS
+        "/etc/ssl/ca-bundle.pem",                                // OpenSUSE
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",     // CentOS/RHEL 7+
+        "/etc/ssl/cert.pem",                                     // Alpine
+        "/etc/pki/tls/cacert.pem",                               // OpenELEC
+        "/etc/ca-certificates/extracted/tls-ca-bundle.pem",      // Arch with ca-certificates-utils
+        "/usr/local/share/certs/ca-root-nss.crt",                // FreeBSD
+        "/usr/share/ssl/certs/ca-bundle.crt",                    // Older RHEL
+        nullptr
+    };
+
+    for (int i = 0; caPaths[i] != nullptr; i++)
+    {
+        if (access(caPaths[i], R_OK) == 0)
+        {
+            return caPaths[i];
+        }
+    }
+
+    return nullptr;  // Not found, curl will use its compiled-in default
+}
+
+void clearAppImageEnvironment() {
+    // AppImages set LD_LIBRARY_PATH and LD_PRELOAD to use bundled libraries.
+    // External tools need system libraries instead, otherwise they may fail
+    // due to symbol conflicts (e.g., PAM modules failing with "cannot open
+    // session: Module is unknown", or KDE tools failing with Qt version
+    // mismatches like "version `Qt_6.10' not found").
+    //
+    // This is safe because forked children running external tools don't need
+    // our bundled libraries.
+    unsetenv("LD_LIBRARY_PATH");
+    unsetenv("LD_PRELOAD");
 }
 
 } // namespace PlatformQuirks

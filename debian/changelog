@@ -1,3 +1,93 @@
+rpi-imager (2.0.5) unstable; urgency=medium
+
+  * all platforms: CLI option added to help on GUI builds
+  * macOS:
+    - Add dark mode and Liquid Glass icon support with pre-compiled assets
+    - Add icon compilation script for regenerating icon assets
+  * UI:
+    - Enhance update popup with version tracking functionality
+    - Improve BaseDialog minimum height for better usability
+    - Use indeterminate progressbar for local gzip files without size info
+    - Fixup updatePopupRequested trigger
+  * Local JSON Helper:
+    - Add device capabilities support
+    - Add OS capabilities support
+
+ -- Tom Dewey <tom.dewey@raspberrypi.com>  Tue, 20 Jan 2026 17:00:00 +0000
+
+rpi-imager (2.0.4) unstable; urgency=medium
+
+  * Write Robustness:
+    - Introduce WriteProgressWatchdog to monitor write progress and detect stalls
+    - Implement recovery strategies for async I/O including queue depth reduction
+      and sync fallback mechanisms
+    - Standardize timeout handling for pending writes across all platforms
+    - Add 5-minute emergency timeout as fallback for stalled operations
+  * Performance:
+    - Enhance recovery event handling and monitoring diagnostics
+    - Capture SHA256 hash values in performance profiles for verification diagnostics
+  * Image Handling:
+    - Add support for parsing .gz files to extract uncompressed size information
+    - Improve handling for files larger than 4GB
+  * Disk Formatting:
+    - Fix FAT32 formatting for large drives (>8GB)
+    - Improve root directory handling based on sectors per cluster
+  * Bug Fixes:
+    - Fix external tools (runuser, xdg-open) failing in AppImage due to
+      LD_LIBRARY_PATH conflicts causing PAM module loading errors
+    - Improve thread safety for download cancellation
+    - Enhance error handling for timeout conditions
+    - Use Pathlib to generate file:// URIs in local JSON helper script
+    - Use XDG-compliant canberra-gtk-play and PipeWire for audio notifications
+      on Linux, fixing beep on Raspberry Pi OS which no longer ships PulseAudio control by default
+  * Accessibility:
+    - Bypass confirmation dialog timer when screen reader is active
+  * Build:
+    - Refactor Qt build scripts for improved POSIX compliance and consistency
+    - Add macOS-specific optimizations for universal builds
+
+ -- Tom Dewey <tom.dewey@raspberrypi.com>  Thu, 15 Jan 2026 12:00:00 +0000
+
+rpi-imager (2.0.3) unstable; urgency=medium
+
+  * Networking:
+    - Implement comprehensive network monitoring to detect connectivity changes
+    - Automatic retry of OS list fetching when network is restored
+    - Add CA certificate bundle detection for AppImage compatibility on Linux
+  * Custom Repositories:
+    - Support rpi-imager:// URI scheme for deep-linking to custom repositories
+    - Register .rpi-imager-manifest file type on all platforms
+    - Show custom repository host in window title with security hardening
+  * Counterfeit Card Detection:
+    - Detect and handle counterfeit storage devices that hang during I/O
+    - Add timeout mechanism for critical disk operations
+    - Add debug option to skip end-of-device operations
+  * Performance:
+    - Implement bottleneck detection showing network/decompression/write status
+    - Add detailed write timing breakdown for analysis
+    - Skip periodic sync when direct I/O is enabled
+  * UI:
+    - Add sticky language preference across sessions
+    - Enhance title display with offline status indication
+    - Improve text wrapping and marquee scrolling throughout
+  * Drive Handling:
+    - Add support for NVMe over Fabrics bus type on Windows
+    - Enhance storage bus type recognition and device classification
+  * Customization:
+    - Enhance WiFi configuration for open networks
+    - Add initFormat parameter to CLI setImageCustomisation call
+  * Windows:
+    - Enhance uninstallation to clean up old installation directories
+  * Bug Fixes:
+    - Fix language selection persistence
+    - Fix async write ID overlap with cancellation markers
+    - Fix async cache hash reset on open
+    - Fix unmounting logic and error handling
+    - Fix hardware/software capability case sensitivity
+  * i18n: Updated Spanish, Czech, French, Russian, Portuguese translations
+
+ -- Tom Dewey <tom.dewey@raspberrypi.com>  Mon, 22 Dec 2025 18:00:00 +0000
+
 rpi-imager (2.0.2) unstable; urgency=medium
 
   * OS customisation:

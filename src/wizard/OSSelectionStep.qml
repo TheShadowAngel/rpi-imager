@@ -52,7 +52,7 @@ WizardStepBase {
         }
     }
     
-    signal updatePopupRequested(var url)
+    signal updatePopupRequested(var url, string version)
     signal defaultEmbeddedDriveRequested(var drive)
     
     // Forward the nextClicked signal as next() function
@@ -127,10 +127,29 @@ WizardStepBase {
     Connections {
         target: imageWriter
         function onOsListPrepared() {
-            // Prefer surgical refresh to avoid stealing focus during clicks
-            if (root.modelLoaded && root.osmodel && typeof root.osmodel.softRefresh === "function") {
+            // If we were showing offline state and now have data, force full reload
+            // (softRefresh only updates existing rows, doesn't add new ones)
+            if (root.osListUnavailable) {
+                // Still unavailable - no point refreshing
+                return
+            }
+            
+            // If model was loaded with just Erase/Use custom (2 items) but now we have more,
+            // we need a full reload, not just softRefresh
+            var needsFullReload = !root.modelLoaded || (root.osmodel && root.osmodel.rowCount() <= 2)
+            
+            if (needsFullReload) {
+                root.modelLoaded = false  // Reset so handler does full reload
+                onOsListPreparedHandler()
+            } else if (root.osmodel && typeof root.osmodel.softRefresh === "function") {
+                // Just updating existing data (e.g., sublist loaded)
                 root.osmodel.softRefresh()
-            } else {
+            }
+        }
+        function onOsListUnavailableChanged() {
+            // When transitioning from unavailable to available, force a full reload
+            if (!root.osListUnavailable && root.osmodel) {
+                root.modelLoaded = false
                 onOsListPreparedHandler()
             }
         }
@@ -214,11 +233,60 @@ WizardStepBase {
         }
     }
     
+    // Track whether OS list is unavailable (no data loaded)
+    readonly property bool osListUnavailable: imageWriter.isOsListUnavailable
+    
     // Content
     content: [
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+        
+        // Offline banner (shown when OS list fetch failed)
+        Rectangle {
+            id: offlineBanner
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? bannerContent.implicitHeight + Style.spacingMedium * 2 : 0
+            visible: root.osListUnavailable
+            color: Style.titleBackgroundColor
+            
+            RowLayout {
+                id: bannerContent
+                anchors.fill: parent
+                anchors.leftMargin: Style.spacingMedium
+                anchors.rightMargin: Style.spacingMedium
+                anchors.topMargin: Style.spacingSmall
+                anchors.bottomMargin: Style.spacingSmall
+                spacing: Style.spacingMedium
+                
+                Text {
+                    text: "⚠"
+                    font.pixelSize: Style.fontSizeFormLabel
+                    color: Style.formLabelColor
+                    Accessible.ignored: true
+                }
+                
+                Text {
+                    text: qsTr("Unable to download OS list. You can still use a local image file.")
+                    font.pixelSize: Style.fontSizeDescription
+                    font.family: Style.fontFamily
+                    color: Style.formLabelColor
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                
+                ImButton {
+                    id: retryButton
+                    text: qsTr("Retry")
+                    accessibleDescription: qsTr("Retry downloading the OS list")
+                    onClicked: {
+                        imageWriter.beginOSListFetch()
+                    }
+                }
+            }
+        }
         
         // OS selection area - fill available space without extra chrome/padding
         Item {
@@ -637,6 +705,7 @@ WizardStepBase {
                 root.wizardContainer.piConnectAvailable = false
                 root.wizardContainer.secureBootAvailable = imageWriter.isSecureBootForcedByCliFlag()
                 root.wizardContainer.ccRpiAvailable = false
+                root.wizardContainer.ifAndFeaturesAvailable = false
                 root.nextButtonEnabled = true
                 if (fromMouse) {
                     Qt.callLater(function() { _highlightMatchingEntryInCurrentView(model) })
@@ -661,6 +730,18 @@ WizardStepBase {
                 root.wizardContainer.piConnectAvailable = imageWriter.checkSWCapability("rpi_connect")
                 root.wizardContainer.secureBootAvailable = imageWriter.checkSWCapability("secure_boot") || imageWriter.isSecureBootForcedByCliFlag()
                 root.wizardContainer.ccRpiAvailable = imageWriter.imageSupportsCcRpi()
+                
+                // Check if any interface/feature capabilities are available (requires both HW and SW support)
+                if (root.wizardContainer.ccRpiAvailable) {
+                    var hasAnyIfFeatures = imageWriter.checkHWAndSWCapability("i2c") ||
+                                           imageWriter.checkHWAndSWCapability("spi") ||
+                                           imageWriter.checkHWAndSWCapability("onewire") ||
+                                           imageWriter.checkHWAndSWCapability("serial") ||
+                                           imageWriter.checkHWAndSWCapability("usb_otg")
+                    root.wizardContainer.ifAndFeaturesAvailable = hasAnyIfFeatures
+                } else {
+                    root.wizardContainer.ifAndFeaturesAvailable = false
+                }
                 
                 // Clean up incompatible settings from customizationSettings based on OS capabilities
                 if (!root.wizardContainer.piConnectAvailable) {
@@ -787,7 +868,7 @@ WizardStepBase {
                 var imager = o["imager"]
                 if (root.imageWriter.getBoolSetting("check_version") && "latest_version" in imager && "url" in imager) {
                     if (!root.imageWriter.isEmbeddedMode() && root.imageWriter.isVersionNewer(imager["latest_version"])) {
-                        root.updatePopupRequested(imager["url"])
+                        root.updatePopupRequested(imager["url"], imager["latest_version"])
                     }
                 }
                 if ("default_os" in imager) {

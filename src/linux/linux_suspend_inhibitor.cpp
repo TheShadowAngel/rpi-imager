@@ -1,4 +1,5 @@
 #include "linux_suspend_inhibitor.h"
+#include "../platformquirks.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -176,6 +177,9 @@ ProcessScopedSuspendInhibitor::ProcessScopedSuspendInhibitor(const char *fileNam
                 _exit(126);
             }
         }
+
+        // Clear AppImage environment before running external tools
+        PlatformQuirks::clearAppImageEnvironment();
 
         // Run the inhibitor tool, and have it wrap cat reading from the FIFO.
         // We avoid using shell to prevent any potential command injection issues.

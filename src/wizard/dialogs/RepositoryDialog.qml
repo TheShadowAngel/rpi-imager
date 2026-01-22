@@ -14,6 +14,13 @@ import RpiImager
 
 BaseDialog {
     id: popup
+    
+    // Dynamic width based on widest radio button or button row
+    // Updates automatically when language/text changes
+    implicitWidth: Math.max(
+        Math.max(radioOfficial.naturalWidth, radioCustomFile.naturalWidth, radioCustomUri.naturalWidth),
+        cancelButton.implicitWidth + saveButton.implicitWidth + Style.spacingMedium * 2
+    ) + Style.cardPadding * 4  // Double padding: contentLayout + optionsLayout margins
 
     // imageWriter is inherited from BaseDialog
     property var wizardContainer: null
@@ -93,6 +100,7 @@ BaseDialog {
                 accessibleDescription: qsTr("Use the official Raspberry Pi operating system repository")
                 checked: true
                 ButtonGroup.group: repoGroup
+                Layout.fillWidth: true  // Enable text wrapping for long translations
             }
 
             ImRadioButton {
@@ -101,6 +109,7 @@ BaseDialog {
                 accessibleDescription: qsTr("Load operating system list from a JSON file on your computer")
                 checked: false
                 ButtonGroup.group: repoGroup
+                Layout.fillWidth: true  // Enable text wrapping for long translations
                 onCheckedChanged: {
                     if (checked) {
                         Qt.callLater(function() {
@@ -116,6 +125,7 @@ BaseDialog {
                 accessibleDescription: qsTr("Download operating system list from a custom web address")
                 checked: false
                 ButtonGroup.group: repoGroup
+                Layout.fillWidth: true  // Enable text wrapping for long translations
                 onCheckedChanged: {
                     if (checked) {
                         Qt.callLater(function() {
@@ -166,17 +176,13 @@ BaseDialog {
                 visible: radioCustomUri.checked
                 Layout.fillWidth: true
                 text: popup.customRepoUri
-                placeholderText: "https://path.to.my/repo.json"
+                placeholderText: "https://example.com/repo.json"
                 font.pixelSize: Style.fontSizeInput
                 activeFocusOnTab: true
                 inputMethodHints: Qt.ImhUrlCharactersOnly
 
-                property bool isValid: fieldCustomUri.isStrictRepoUrl(text)
-
-                function isStrictRepoUrl(s) {
-                    // http/https, at least one non-space char, ends with .json
-                    return /^https?:\/\/[^ \t\r\n]+\.json$/i.test(s)
-                }
+                // Use ImageWriter's validation method for consistency
+                property bool isValid: popup.imageWriter && popup.imageWriter.isValidRepoUrl(text)
             }
         }
     }
@@ -189,6 +195,8 @@ BaseDialog {
     // Buttons section with background
     Rectangle {
         Layout.fillWidth: true
+        // Ensure minimum width accommodates buttons
+        Layout.minimumWidth: cancelButton.implicitWidth + saveButton.implicitWidth + Style.spacingMedium * 2 + Style.cardPadding
         Layout.preferredHeight: buttonRow.implicitHeight + Style.cardPadding
         color: Style.titleBackgroundColor
 
@@ -228,6 +236,8 @@ BaseDialog {
                 text: qsTr("Apply & Restart")
                 accessibleDescription: qsTr("Apply the new content repository and restart the wizard from the beginning")
                 Layout.minimumWidth: Style.buttonWidthMinimum
+                // Allow button to grow to fit text
+                implicitWidth: Math.max(Style.buttonWidthMinimum, implicitContentWidth + leftPadding + rightPadding)
                 activeFocusOnTab: true
                 onClicked: {
                     popup.applySettings();
@@ -253,19 +263,20 @@ BaseDialog {
             initialized = true
 
             if (imageWriter.customRepo()) {
-                var repo = new URL(imageWriter.osListUrl())
-                if (repo.protocol === "file:") {
+                // Get URL as string to check the scheme
+                var repoStr = imageWriter.osListUrl().toString()
+                if (repoStr.startsWith("file:")) {
                     radioOfficial.checked = false
                     radioCustomFile.checked = true
                     radioCustomUri.checked = false
-                    selectedRepo = repo
-                    originalRepo = selectedRepo.toString()
-                } else if (repo.protocol === "http:" || repo.protocol === "https:") {
+                    selectedRepo = imageWriter.osListUrl()
+                    originalRepo = repoStr
+                } else if (repoStr.startsWith("http:") || repoStr.startsWith("https:")) {
                     radioOfficial.checked = false
                     radioCustomFile.checked = false
                     radioCustomUri.checked = true
-                    customRepoUri = repo.toString()
-                    originalRepo = repo.toString()
+                    customRepoUri = repoStr
+                    originalRepo = repoStr
                 } else {
                     radioOfficial.checked = true
                     radioCustomFile.checked = false
@@ -298,7 +309,8 @@ BaseDialog {
             // reset wizard to device selection because the repository changed
             wizardContainer.resetWizard()
         } else if (radioCustomUri.checked && originalRepo !== fieldCustomUri.text) {
-            imageWriter.refreshOsListFrom(new URL(fieldCustomUri.text))
+            // QML auto-converts string to QUrl for C++ method
+            imageWriter.refreshOsListFrom(fieldCustomUri.text)
             // reset wizard to device selection because the repository changed
             wizardContainer.resetWizard()
         }

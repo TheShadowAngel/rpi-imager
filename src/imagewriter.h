@@ -10,7 +10,6 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QNetworkAccessManager>
 #include <QObject>
 #include <QTimer>
 #include <QUrl>
@@ -20,7 +19,6 @@
 #ifndef CLI_ONLY_BUILD
 #include <QQmlEngine>
 #endif
-#include <QNetworkReply>
 #include "config.h"
 #include "suspend_inhibitor.h"
 #include "drivelistmodel.h"
@@ -38,8 +36,8 @@
 class QQmlApplicationEngine;
 class DownloadThread;
 class DownloadExtractThread;
-class QNetworkReply;
 class QTranslator;
+class WriteProgressWatchdog;
 #ifndef CLI_ONLY_BUILD
 class NativeFileDialog;
 #endif
@@ -69,6 +67,10 @@ public:
     void setEngine(QQmlApplicationEngine *engine);
 
     Q_PROPERTY(WriteState writeState READ writeState NOTIFY writeStateChanged)
+    Q_PROPERTY(bool isOsListUnavailable READ isOsListUnavailable NOTIFY osListUnavailableChanged)
+
+    /* Returns true if the extract size is reliably known (false for gz files which can't store sizes >4GB) */
+    Q_INVOKABLE bool isExtractSizeKnown() const { return _extractSizeKnown; }
 
     /* Set URL to download from, and if known download length and uncompressed length */
     Q_INVOKABLE void setSrc(const QUrl &url, quint64 downloadLen = 0, quint64 extrLen = 0, QByteArray expectedHash = "", bool multifilesinzip = false, QString parentcategory = "", QString osname = "", QByteArray initFormat = "", QString releaseDate = "");
@@ -163,6 +165,7 @@ public:
 
     /* Set the capabilities supported by the hardware, for a filtered view of options that require the software to have certain capabilities. */
     Q_INVOKABLE void setSWCapabilitiesList(const QString &json);
+    Q_INVOKABLE void setSWCapabilitiesList(const QVariantList &caps);
 
     /* Get the HW filter list */
     Q_INVOKABLE QJsonArray getHWFilterList();
@@ -225,6 +228,9 @@ public:
     /* Returns true if run on embedded Linux platform */
     Q_INVOKABLE bool isEmbeddedMode() const;
 
+    /* Returns true if window has decorations (title bar visible) */
+    Q_INVOKABLE bool hasWindowDecorations() const;
+
     /* Mount any USB sticks that can contain source images under /media
        Returns true if at least one device was mounted */
     Q_INVOKABLE bool mountUsbSourceMedia();
@@ -252,9 +258,25 @@ public:
     Q_INVOKABLE void setSetting(const QString &key, const QVariant &value);
     Q_INVOKABLE QString getRsaKeyFingerprint(const QString &keyPath);
     
+    // Debug options (secret menu: Cmd+Option+S on macOS, Ctrl+Alt+S on others)
+    Q_INVOKABLE bool getDebugDirectIO() const;
+    Q_INVOKABLE void setDebugDirectIO(bool enabled);
+    Q_INVOKABLE bool getDebugPeriodicSync() const;
+    Q_INVOKABLE void setDebugPeriodicSync(bool enabled);
+    Q_INVOKABLE bool getDebugVerboseLogging() const;
+    Q_INVOKABLE void setDebugVerboseLogging(bool enabled);
+    Q_INVOKABLE bool getDebugAsyncIO() const;
+    Q_INVOKABLE void setDebugAsyncIO(bool enabled);
+    Q_INVOKABLE int getDebugAsyncQueueDepth() const;
+    Q_INVOKABLE void setDebugAsyncQueueDepth(int depth);
+    Q_INVOKABLE bool getDebugIPv4Only() const;
+    Q_INVOKABLE void setDebugIPv4Only(bool enabled);
+    Q_INVOKABLE bool getDebugSkipEndOfDevice() const;
+    Q_INVOKABLE void setDebugSkipEndOfDevice(bool enabled);
+    
     // Customisation API
     Q_INVOKABLE void applyCustomisationFromSettings(const QVariantMap &settings);  // Main entry: generates scripts from settings
-    Q_INVOKABLE void setImageCustomisation(const QByteArray &config, const QByteArray &cmdline, const QByteArray &firstrun, const QByteArray &cloudinit, const QByteArray &cloudinitNetwork, const ImageOptions::AdvancedOptions opts = {});  // Advanced: bypass generator with pre-made scripts
+    Q_INVOKABLE void setImageCustomisation(const QByteArray &config, const QByteArray &cmdline, const QByteArray &firstrun, const QByteArray &cloudinit, const QByteArray &cloudinitNetwork, const ImageOptions::AdvancedOptions opts = {}, const QByteArray &initFormat = {});  // Advanced: bypass generator with pre-made scripts
     
     // Persistence API
     Q_INVOKABLE void setSavedCustomisationSettings(const QVariantMap &map);  // Legacy: prefer setPersistedCustomisationSetting()
@@ -274,6 +296,10 @@ public:
     Q_INVOKABLE void changeLanguage(const QString &newLanguageName);
     Q_INVOKABLE void changeKeyboard(const QString &newKeymapLayout);
     Q_INVOKABLE bool customRepo();
+    Q_INVOKABLE QString customRepoHost();
+    
+    /* Validate if a string is a valid repository URL (http/https ending with .json or .rpi-imager-manifest) */
+    Q_INVOKABLE bool isValidRepoUrl(const QString &url) const;
     
     // Secure Boot CLI override
     static void setForceSecureBootEnabled(bool enabled);
@@ -303,6 +329,9 @@ public:
     Q_INVOKABLE bool installElevationPolicy();
     Q_INVOKABLE void restartWithElevatedPrivileges();
 
+    /* Check if audio notification (beep) is available on this system */
+    Q_INVOKABLE bool isBeepAvailable();
+
     /* Performance data export - opens native save dialog and writes performance data to file.
        If native dialogs aren't available, emits performanceSaveDialogNeeded for QML fallback. */
     Q_INVOKABLE bool exportPerformanceData();
@@ -316,6 +345,9 @@ public:
     /* Check if performance data is available */
     Q_INVOKABLE bool hasPerformanceData();
 
+    /* Check if OS list is unavailable - derived from whether we have data (for QML offline UI) */
+    bool isOsListUnavailable() const { return _completeOsList.isEmpty(); }
+
     /* Get access to performance stats for instrumentation */
     PerformanceStats* performanceStats() { return _performanceStats; }
 
@@ -323,6 +355,7 @@ signals:
     /* We are emiting signals with QVariant as parameters because QML likes it that way */
 
     void downloadProgress(QVariant dlnow, QVariant dltotal);
+    void writeProgress(QVariant now, QVariant total);
     void verifyProgress(QVariant now, QVariant total);
     void error(QVariant msg);
     void success();
@@ -332,6 +365,8 @@ signals:
     void networkOnline();
     void preparationStatusUpdate(QVariant msg);
     void osListPrepared();
+    void bottleneckStatusChanged(QVariant status, QVariant throughputKBps);
+    void operationWarning(QVariant message);  // Non-fatal warning during operation (e.g., sync fallback)
     void hwFilterChanged();
     void networkInfo(QVariant msg);
     void cacheVerificationStarted();
@@ -344,8 +379,10 @@ signals:
     void connectTokenReceived(const QString &token);
     void connectTokenConflictDetected(const QString &token);
     void connectTokenCleared();
+    void repositoryUrlReceived(const QString &url);
+    void customRepoChanged();
     void cacheStatusChanged();
-    void osListFetchFailed();
+    void osListUnavailableChanged();
     void permissionWarning(QVariant msg);
     void locationPermissionGranted();
     void performanceSaveDialogNeeded(const QString &suggestedFilename, const QString &initialDir);
@@ -354,13 +391,17 @@ protected slots:
     void startProgressPolling();
     void stopProgressPolling();
     void pollNetwork();
+    void restartWrite(QString reason);  // Restart write in sync mode after stall
+    
     void onSuccess();
     void onError(QString msg);
     void onFileSelected(QString filename);
     void onCancelled();
     void onFinalizing();
     void onPreparationStatusUpdate(QString msg);
-    void handleNetworkRequestFinished(QNetworkReply *data);
+    void onOsListFetchComplete(const QByteArray &data, const QUrl &url);
+    void onOsListFetchError(const QString &errorMessage, const QUrl &url);
+    void onNetworkConnectionStats(const QString &statsMetadata, const QUrl &url);
     void onSTPdetected();
     void onCacheVerificationProgress(qint64 bytesProcessed, qint64 totalBytes);
     void onCacheVerificationComplete(bool isValid);
@@ -382,8 +423,8 @@ private:
     // Recursively walk all the entries with subitems and, for any which
     // refer to an external JSON list, fetch the list and put it in place.
     void fillSubLists(QJsonArray &topLevel);
-    QNetworkAccessManager _networkManager;
-    QHash<QNetworkReply*, qint64> _networkRequestStartTimes;  // Track request start times for performance
+    void queueSublistFetches(const QJsonArray &list, int depth);
+    QHash<QUrl, qint64> _pendingFetchStartTimes;  // Track request start times for performance
     QJsonDocument _completeOsList;
     QJsonArray _deviceFilter, _hwCapabilities, _swCapabilities;
     bool _deviceFilterIsInclusive;
@@ -394,7 +435,6 @@ private:
 protected:
     QUrl _src, _repo;
     QString _dst, _parentCategory, _osName, _osReleaseDate, _currentLang, _currentLangcode, _currentKeyboard;
-    QStringList _dstChildDevices;  // macOS APFS child volumes to unmount (cached at device selection)
     QByteArray _expectedHash, _cmdline, _config, _firstrun, _cloudinit, _cloudinitNetwork, _initFormat;
     ImageOptions::AdvancedOptions _advancedOptions;
     quint64 _downloadLen, _extrLen, _devLen, _dlnow, _verifynow;
@@ -409,7 +449,7 @@ protected:
     QTimer _osListRefreshTimer;
     SuspendInhibitor *_suspendInhibitor;
     DownloadThread *_thread;
-    bool _verifyEnabled, _multipleFilesInZip, _online;
+    bool _verifyEnabled, _multipleFilesInZip, _online, _extractSizeKnown;
     QSettings _settings;
     QMap<QString,QString> _translations;
     QTranslator *_trans;
@@ -425,9 +465,23 @@ protected:
 
     // Performance statistics capture
     PerformanceStats *_performanceStats;
+    
+    // Progress watchdog - separate component that monitors for stalls
+    WriteProgressWatchdog* _progressWatchdog = nullptr;
+    bool _forceSyncMode = false;  // Force sync I/O on next write (after recovery restart)
+    
+    // Debug options (secret menu)
+    bool _debugDirectIO;
+    bool _debugPeriodicSync;
+    bool _debugVerboseLogging;
+    bool _debugAsyncIO;
+    int _debugAsyncQueueDepth;
+    bool _debugIPv4Only;
+    bool _debugSkipEndOfDevice;
 
     void _parseCompressedFile();
     void _parseXZFile();
+    void _parseGzFile();
     QString _pubKeyFileName();
     QString _privKeyFileName();
     QString _sshKeyDir();
@@ -436,6 +490,8 @@ protected:
     void _applyCloudInitCustomisationFromSettings(const QVariantMap &s);
     void _continueStartWriteAfterCacheVerification(bool cacheIsValid);
     void scheduleOsListRefresh();
+    void _handleMemoryAllocationFailure(const char* what);
+    void _handleSetupException(const char* what);
 };
 
 #endif // IMAGEWRITER_H

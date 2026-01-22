@@ -83,7 +83,11 @@ int Cli::run()
         
         std::cerr << "ERROR: Not running as root." << std::endl;
         std::cerr << commonMsg << std::endl;
-        std::cerr << "Please run with sudo: sudo " << execName.toStdString() << " --cli ..." << std::endl;
+        std::cerr << "Please run with sudo: sudo " << execName.toStdString()
+#ifndef CLI_ONLY_BUILD
+        << " --cli"
+#endif
+        << " ..." << std::endl;
 #elif defined(Q_OS_WIN)
         std::cerr << "ERROR: Not running as Administrator." << std::endl;
         std::cerr << commonMsg << std::endl;
@@ -254,7 +258,7 @@ int Cli::run()
             }
         }
 
-        _imageWriter->setImageCustomisation("", "", "", userData, networkConfig, advancedOptions);
+        _imageWriter->setImageCustomisation("", "", "", userData, networkConfig, advancedOptions, initFormat);
     }
     else if (!parser.value("first-run-script").isEmpty())
     {
@@ -276,12 +280,12 @@ int Cli::run()
             return 1;
         }
 
-        _imageWriter->setImageCustomisation("", "", firstRunScript, "", "", ImageOptions::UserDefinedFirstRun | advancedOptions);
+        _imageWriter->setImageCustomisation("", "", firstRunScript, "", "", ImageOptions::UserDefinedFirstRun | advancedOptions, initFormat);
     }
     else if (advancedOptions != ImageOptions::NoAdvancedOptions)
     {
         // Secure boot key provided without customization scripts
-        _imageWriter->setImageCustomisation("", "", "", "", "", advancedOptions);
+        _imageWriter->setImageCustomisation("", "", "", "", "", advancedOptions, initFormat);
     }
 
     _imageWriter->setDst(args[1]);
@@ -305,9 +309,8 @@ void Cli::onSuccess()
 
 void Cli::_clearLine()
 {
-    /* Properly clearing line requires platform specific code.
-       Just write some spaces for now, and return to beginning of line. */
-    std::cerr << "                                          \r";
+    // ANSI "Erase in Line" escape sequence
+    std::cerr << "\e[0K";
 }
 
 void Cli::onError(QVariant msg)

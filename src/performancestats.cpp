@@ -136,6 +136,13 @@ void PerformanceStats::setSystemInfo(const SystemInfo &info)
              << "Device:" << info.deviceDescription;
 }
 
+void PerformanceStats::updateDirectIOEnabled(bool enabled)
+{
+    QMutexLocker locker(&_mutex);
+    _systemInfo.directIOEnabled = enabled;
+    qDebug() << "PerformanceStats: Direct I/O state updated to" << (enabled ? "enabled" : "disabled");
+}
+
 void PerformanceStats::endSession(bool success, const QString &errorMessage)
 {
     QMutexLocker locker(&_mutex);
@@ -375,6 +382,8 @@ QString PerformanceStats::eventTypeName(EventType type)
         // Drive operations
         case EventType::DriveListPoll: return "driveListPoll";
         case EventType::DriveOpen: return "driveOpen";
+        case EventType::DriveAuthorization: return "driveAuthorization";
+        case EventType::DriveMbrZeroing: return "driveMbrZeroing";
         case EventType::DirectIOAttempt: return "directIOAttempt";
         case EventType::DriveUnmount: return "driveUnmount";
         case EventType::DriveUnmountVolumes: return "driveUnmountVolumes";
@@ -391,7 +400,7 @@ QString PerformanceStats::eventTypeName(EventType type)
         // Memory management
         case EventType::MemoryAllocation: return "memoryAllocation";
         case EventType::BufferResize: return "bufferResize";
-        case EventType::PageCacheFlush: return "pageCacheFlush";
+        case EventType::PeriodicSync: return "periodicSync";
         case EventType::RingBufferStarvation: return "ringBufferStarvation";
         
         // Image processing
@@ -405,9 +414,25 @@ QString PerformanceStats::eventTypeName(EventType type)
         case EventType::PipelineRingBufferWaitTime: return "pipelineRingBufferWaitTime";
         case EventType::WriteRingBufferStats: return "writeRingBufferStats";
         
+        // Write timing breakdown (detailed instrumentation)
+        case EventType::WriteTimingBreakdown: return "writeTimingBreakdown";
+        case EventType::WriteSizeDistribution: return "writeSizeDistribution";
+        case EventType::WriteAfterSyncImpact: return "writeAfterSyncImpact";
+        case EventType::AsyncIOConfig: return "asyncIOConfig";
+        case EventType::AsyncIOTiming: return "asyncIOTiming";
+        
         // Cycle boundaries
         case EventType::CycleStart: return "cycleStart";
         case EventType::CycleEnd: return "cycleEnd";
+        
+        // Stall detection
+        case EventType::ProgressStall: return "progressStall";
+        case EventType::MemoryAllocationFailure: return "memoryAllocationFailure";
+        case EventType::DeviceIOTimeout: return "deviceIOTimeout";
+        case EventType::QueueDepthReduction: return "queueDepthReduction";
+        case EventType::SyncFallbackActivated: return "syncFallbackActivated";
+        case EventType::DrainAndHotSwap: return "drainAndHotSwap";
+        case EventType::WatchdogRecovery: return "watchdogRecovery";
         
         // Customisation
         case EventType::Customisation: return "customisation";
@@ -688,6 +713,30 @@ QJsonDocument PerformanceStats::exportToJson() const
         if (!_systemInfo.qtBuildVersion.isEmpty())
             imager["qtBuild"] = _systemInfo.qtBuildVersion;
         sysInfo["imager"] = imager;
+        
+        // Write configuration (helps diagnose performance issues like sync overhead)
+        QJsonObject writeConfig;
+        writeConfig["directIOEnabled"] = _systemInfo.directIOEnabled;
+        writeConfig["periodicSyncEnabled"] = _systemInfo.periodicSyncEnabled;
+        if (_systemInfo.periodicSyncEnabled) {
+            writeConfig["syncIntervalBytes"] = _systemInfo.syncIntervalBytes;
+            writeConfig["syncIntervalMB"] = _systemInfo.syncIntervalBytes / (1024 * 1024);
+            writeConfig["syncIntervalMs"] = _systemInfo.syncIntervalMs;
+        }
+        if (!_systemInfo.memoryTier.isEmpty())
+            writeConfig["memoryTier"] = _systemInfo.memoryTier;
+        
+        // Buffer configuration
+        QJsonObject buffers;
+        buffers["writeBufferBytes"] = _systemInfo.writeBufferSize;
+        buffers["writeBufferKB"] = _systemInfo.writeBufferSize / 1024;
+        buffers["inputBufferBytes"] = _systemInfo.inputBufferSize;
+        buffers["inputBufferKB"] = _systemInfo.inputBufferSize / 1024;
+        buffers["inputRingBufferSlots"] = _systemInfo.inputRingBufferSlots;
+        buffers["writeRingBufferSlots"] = _systemInfo.writeRingBufferSlots;
+        writeConfig["buffers"] = buffers;
+        
+        sysInfo["writeConfig"] = writeConfig;
         
         root["system"] = sysInfo;
     }

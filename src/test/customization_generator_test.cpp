@@ -235,7 +235,7 @@ TEST_CASE("CustomisationGenerator WiFi configuration", "[customization]") {
     REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("ieee80211w=1"));
 }
 
-TEST_CASE("CustomisationGenerator WiFi configuration with empty PSK", "[customization]") {
+TEST_CASE("CustomisationGenerator WiFi configuration with empty PSK (open network)", "[customization]") {
     QVariantMap settings;
     settings["wifiSSID"] = "OpenNetwork";
     settings["wifiPasswordCrypt"] = "";  // Empty PSK for open network
@@ -244,13 +244,15 @@ TEST_CASE("CustomisationGenerator WiFi configuration with empty PSK", "[customiz
     QByteArray script = CustomisationGenerator::generateSystemdScript(settings);
     QString scriptStr = QString::fromUtf8(script);
     
-    // Should still include psk= line even when empty (matching old Imager behavior)
+    // Open network should use key_mgmt=NONE without psk= line
+    // See: https://github.com/raspberrypi/rpi-imager/issues/1396
     REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("wpa_supplicant.conf"));
     REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("ssid=\"OpenNetwork\""));
-    // WPA2/WPA3 transition mode
-    REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("key_mgmt=WPA-PSK SAE"));
-    REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("\tpsk="));
-    REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("ieee80211w=1"));
+    REQUIRE_THAT(scriptStr.toStdString(), ContainsSubstring("key_mgmt=NONE"));
+    // Should NOT have WPA-PSK, psk, or ieee80211w for open networks
+    REQUIRE_THAT(scriptStr.toStdString(), !ContainsSubstring("WPA-PSK"));
+    REQUIRE_THAT(scriptStr.toStdString(), !ContainsSubstring("\tpsk="));
+    REQUIRE_THAT(scriptStr.toStdString(), !ContainsSubstring("ieee80211w=1"));
 }
 
 TEST_CASE("CustomisationGenerator WiFi country only (no SSID)", "[customization]") {
@@ -598,8 +600,9 @@ TEST_CASE("CustomisationGenerator generates cloud-init user-data with hostname",
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("manage_resolv_conf: false"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("hostname: testpi"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("manage_etc_hosts: true"));
-    // Allow local hostname changes after first boot (don't let cloud-init overwrite)
-    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("preserve_hostname: true"));
+    // Note: preserve_hostname is NOT set - cloud-init's per-instance behavior
+    // (via unique instance-id) ensures hostname is only set once
+    REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("preserve_hostname"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("packages:"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("- avahi-daemon"));
     // Preserve user's apt sources list
@@ -792,6 +795,13 @@ TEST_CASE("CustomisationGenerator generates cloud-init network-config with WiFi"
     
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("network:"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("version: 2"));
+    
+    // eth0 with DHCP v4 and v6 always present
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    
+    // WiFi configuration
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("wifis:"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("wlan0:"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp4: true"));
@@ -813,10 +823,44 @@ TEST_CASE("CustomisationGenerator generates cloud-init network-config with hidde
     QByteArray netcfg = CustomisationGenerator::generateCloudInitNetworkConfig(settings, false);
     QString yaml = QString::fromUtf8(netcfg);
     
+    // eth0 with DHCP v4 and v6 always present
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    
+    // Hidden WiFi configuration
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("\"HiddenNetwork\":"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("hidden: true"));
     // Use password shorthand (not auth: block) for automatic WPA2/WPA3 transition mode
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("password:"));
+}
+
+TEST_CASE("CustomisationGenerator generates cloud-init network-config for open WiFi (no password)", "[cloudinit][network]") {
+    QVariantMap settings;
+    settings["wifiSSID"] = "OpenNetwork";
+    settings["wifiPasswordCrypt"] = "";  // Empty = open network
+    settings["recommendedWifiCountry"] = "US";
+    
+    QByteArray netcfg = CustomisationGenerator::generateCloudInitNetworkConfig(settings, false);
+    QString yaml = QString::fromUtf8(netcfg);
+    
+    // eth0 with DHCP v4 and v6 always present
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    
+    // Open network configuration - must use auth: key-management: none
+    // See: https://github.com/raspberrypi/rpi-imager/issues/1396
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("wifis:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("wlan0:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("\"OpenNetwork\":"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("regulatory-domain: \"US\""));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("auth:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("key-management: none"));
+    // Should NOT have password field for open networks
+    REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("password:"));
 }
 
 TEST_CASE("CustomisationGenerator cloud-init WiFi country only (no SSID)", "[cloudinit][network]") {
@@ -833,12 +877,19 @@ TEST_CASE("CustomisationGenerator cloud-init WiFi country only (no SSID)", "[clo
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("rfkill, unblock, wifi"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("/var/lib/systemd/rfkill/*:wlan"));
     
-    // Network config should be empty when there's no SSID
-    // Cloud-init requires at least one access-point if wifis: is defined, so we can't
-    // generate network config with just a regulatory domain. The regulatory domain
-    // is set via cmdline parameter (cfg80211.ieee80211_regdom) instead.
+    // Network config should include eth0 for DHCP but no WiFi when there's no SSID
+    // The regulatory domain is set via cmdline parameter (cfg80211.ieee80211_regdom) instead.
     QByteArray netcfg = CustomisationGenerator::generateCloudInitNetworkConfig(settings, false);
-    REQUIRE(netcfg.isEmpty());
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    
+    // Should have eth0 configuration with DHCP v4 and v6
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    
+    // Should NOT have wifis section (no SSID configured)
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("CustomisationGenerator generates cloud-init network-config with special characters in SSID", "[cloudinit][network][negative]") {
@@ -848,6 +899,10 @@ TEST_CASE("CustomisationGenerator generates cloud-init network-config with speci
     
     QByteArray netcfg = CustomisationGenerator::generateCloudInitNetworkConfig(settings, false);
     QString yaml = QString::fromUtf8(netcfg);
+    
+    // eth0 with DHCP always present
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("eth0:"));
     
     // Quotes should be escaped
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("Test \\\"Network\\\" (5GHz)"));
@@ -917,7 +972,8 @@ TEST_CASE("Independent step: Hostname only", "[cloudinit][independent][hostname]
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("manage_resolv_conf: false"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("hostname: mypi"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("manage_etc_hosts: true"));
-    REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("preserve_hostname: true"));
+    // preserve_hostname is NOT set - per-instance behavior handles this
+    REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("preserve_hostname"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("packages:"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("- avahi-daemon"));
     REQUIRE_THAT(yaml.toStdString(), ContainsSubstring("apt:"));
@@ -930,8 +986,13 @@ TEST_CASE("Independent step: Hostname only", "[cloudinit][independent][hostname]
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: Timezone only", "[cloudinit][independent][locale]") {
@@ -953,8 +1014,13 @@ TEST_CASE("Independent step: Timezone only", "[cloudinit][independent][locale]")
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: Keyboard only", "[cloudinit][independent][locale]") {
@@ -978,8 +1044,13 @@ TEST_CASE("Independent step: Keyboard only", "[cloudinit][independent][locale]")
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("timezone:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: Locale (timezone + keyboard)", "[cloudinit][independent][locale]") {
@@ -1032,8 +1103,13 @@ TEST_CASE("Independent step: User credentials only (no SSH)", "[cloudinit][indep
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: WiFi only", "[cloudinit][independent][wifi]") {
@@ -1048,9 +1124,15 @@ TEST_CASE("Independent step: WiFi only", "[cloudinit][independent][wifi]") {
     QString userdataYaml = QString::fromUtf8(userdata);
     QString netcfgYaml = QString::fromUtf8(netcfg);
     
-    // Network config MUST be generated
+    // Network config MUST have eth0 with DHCP
     REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("network:"));
     REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("version: 2"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    
+    // Network config MUST have WiFi configured
     REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("wifis:"));
     REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("wlan0:"));
     REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("\"MyHomeNetwork\":"));
@@ -1088,8 +1170,13 @@ TEST_CASE("Independent step: SSH with password auth only", "[cloudinit][independ
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: SSH with public keys only", "[cloudinit][independent][ssh]") {
@@ -1140,8 +1227,13 @@ TEST_CASE("Independent step: Interfaces only (I2C)", "[cloudinit][independent][i
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("timezone:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("Independent step: Interfaces only (SPI)", "[cloudinit][independent][interfaces]") {
@@ -1237,8 +1329,13 @@ TEST_CASE("Independent step: Pi Connect only (with required user)", "[cloudinit]
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("keyboard:"));
     REQUIRE_THAT(yaml.toStdString(), !ContainsSubstring("rpi:"));
     
-    // No network config
-    REQUIRE(netcfg.isEmpty());
+    // Network config has eth0 with DHCP but no WiFi
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 // =============================================================================
@@ -1416,10 +1513,26 @@ TEST_CASE("CustomisationGenerator handles empty cloud-init settings gracefully",
     
     QByteArray userdata = CustomisationGenerator::generateCloudInitUserData(settings);
     QByteArray netcfg = CustomisationGenerator::generateCloudInitNetworkConfig(settings);
+    QString userdataYaml = QString::fromUtf8(userdata);
     
-    // Should return empty or minimal YAML
-    REQUIRE(userdata.isEmpty());
-    REQUIRE(netcfg.isEmpty());
+    // User data should only have the always-present manage_resolv_conf setting
+    REQUIRE_THAT(userdataYaml.toStdString(), ContainsSubstring("manage_resolv_conf: false"));
+    // Should NOT have any user-specific configuration
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("hostname:"));
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("users:"));
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("enable_ssh:"));
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("timezone:"));
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("keyboard:"));
+    REQUIRE_THAT(userdataYaml.toStdString(), !ContainsSubstring("rpi:"));
+    
+    // Network config should still have eth0 with DHCP (always generated)
+    QString netcfgYaml = QString::fromUtf8(netcfg);
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("network:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("ethernets:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("eth0:"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp4: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), ContainsSubstring("dhcp6: true"));
+    REQUIRE_THAT(netcfgYaml.toStdString(), !ContainsSubstring("wifis:"));
 }
 
 TEST_CASE("CustomisationGenerator cloud-init handles empty Pi Connect token", "[cloudinit][negative]") {

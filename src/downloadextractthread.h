@@ -9,7 +9,6 @@
 #include "downloadthread.h"
 #include "ringbuffer.h"
 #include <condition_variable>
-#include <QFuture>
 #include <memory>
 
 class _extractThreadClass;
@@ -27,10 +26,10 @@ public:
     explicit DownloadExtractThread(const QByteArray &url, const QByteArray &localfilename = "", const QByteArray &expectedHash = "", QObject *parent = nullptr);
 
     virtual ~DownloadExtractThread();
-    virtual void cancelDownload();
+    virtual void cancelDownload() override;
     virtual void extractImageRun();
     virtual void extractMultiFileRun();
-    virtual bool isImage();
+    virtual bool isImage() override;
     virtual void enableMultipleFileExtraction();
 
 signals:
@@ -42,7 +41,6 @@ signals:
     
     // Pipeline timing summary events (emitted at end of extraction)
     void eventPipelineDecompressionTime(quint32 totalMs, quint64 bytesDecompressed);
-    void eventPipelineWriteWaitTime(quint32 totalMs, quint64 bytesWritten);
     void eventPipelineRingBufferWaitTime(quint32 totalMs, quint64 bytesRead);
     void eventWriteRingBufferStats(quint64 producerStalls, quint64 consumerStalls, 
                                    quint64 producerWaitMs, quint64 consumerWaitMs);
@@ -63,8 +61,6 @@ protected:
     
     bool _ethreadStarted, _isImage;
     AcceleratedCryptographicHash _inputHash;
-    bool _writeThreadStarted;
-    QFuture<size_t> _writeFuture;
     bool _progressStarted;
     qint64 _lastProgressTime;
     quint64 _lastEmittedDlNow, _lastLocalVerifyNow;
@@ -75,17 +71,19 @@ protected:
     
     // Pipeline timing accumulators (for performance analysis)
     std::atomic<quint64> _totalDecompressionMs;   // Time spent in archive_read_data()
-    std::atomic<quint64> _totalWriteWaitMs;       // Time blocked waiting for _writeFuture.result()
     std::atomic<quint64> _totalRingBufferWaitMs;  // Time in _on_read() waiting for data
     std::atomic<quint64> _bytesReadFromRingBuffer;// Bytes read from ring buffer
+    
+    // Stall error message (set from libarchive callback, used in error handler)
+    QString _stallErrorMessage;
 
     void _pushQueue(const char *data, size_t len);
     void _cancelExtract();
-    virtual size_t _writeData(const char *buf, size_t len);
-    virtual void _onDownloadSuccess();
-    virtual void _onDownloadError(const QString &msg);
+    virtual size_t _writeData(const char *buf, size_t len) override;
+    virtual void _onDownloadSuccess() override;
+    virtual void _onDownloadError(const QString &msg) override;
     void _emitProgressUpdate();
-    virtual bool _verify();
+    virtual void _onVerifyProgress() override;
 
     virtual ssize_t _on_read(struct archive *a, const void **buff);
     virtual int _on_close(struct archive *a);

@@ -253,6 +253,10 @@
         <source>Localisation configured</source>
         <translation>Локализация настроена</translation>
     </message>
+    <message>
+        <source>Authorized keys files (authorized_keys)</source>
+        <translation>Файлы авторизационных ключей (authorized_keys)</translation>
+    </message>
 </context>
 <context>
     <name>ConfirmSystemDriveDialog</name>
@@ -663,6 +667,10 @@
         <source>Writing customization files...</source>
         <translation>Запись файлов настройки...</translation>
     </message>
+    <message>
+        <source>Failed to allocate buffer for MBR zeroing</source>
+        <translation>Не удалось выделить буфер для обнуления MBR</translation>
+    </message>
 </context>
 <context>
     <name>DriveFormatThread</name>
@@ -905,6 +913,36 @@
         <source>File: %1</source>
         <translation>Файл: %1</translation>
     </message>
+    <message>
+        <source>Documents</source>
+        <translation>Документы</translation>
+    </message>
+    <message>
+        <source>Downloads</source>
+        <translation>Загрузки</translation>
+    </message>
+    <message>
+        <source>Home</source>
+        <translation>Домашний каталог</translation>
+    </message>
+    <message>
+        <source>File name:</source>
+        <translation>Имя файла:</translation>
+    </message>
+    <message>
+        <source>Enter filename…</source>
+        <translation>Введите имя файла…</translation>
+    </message>
+    <message>
+        <source>Navigate to a folder using the panel on the left,
+or type a path in the address bar above.</source>
+        <translation>Перейдите в папку, используя панель слева,
+или введите путь в адресную строку выше.</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Сохранить</translation>
+    </message>
 </context>
 <context>
     <name>ImOptionButton</name>
@@ -921,10 +959,44 @@
     </message>
 </context>
 <context>
+    <name>ImPasswordField</name>
+    <message>
+        <source>Password is visible. Press F2 to hide.</source>
+        <translation>Пароль отображается. Нажмите F2, чтобы скрыть его.</translation>
+    </message>
+    <message>
+        <source>Password is hidden. Press F2 to show.</source>
+        <translation>Пароль скрыт. Нажмите F2, чтобы отобразить.</translation>
+    </message>
+    <message>
+        <source>Hide password</source>
+        <translation>Скрыть пароль</translation>
+    </message>
+    <message>
+        <source>Show password</source>
+        <translation>Показать пароль</translation>
+    </message>
+    <message>
+        <source>Password is currently visible. Activate to hide it.</source>
+        <translation>Пароль в данный момент виден. Активируйте эту функцию, чтобы скрыть его.</translation>
+    </message>
+    <message>
+        <source>Password is currently hidden. Activate to show it.</source>
+        <translation>Пароль в данный момент скрыт. Активируйте его, чтобы отобразить.</translation>
+    </message>
+</context>
+<context>
     <name>ImPopup</name>
     <message>
         <source>Dialog</source>
         <translation>Диалог</translation>
+    </message>
+</context>
+<context>
+    <name>ImSaveFileDialog</name>
+    <message>
+        <source>Save File</source>
+        <translation>Сохранить файл</translation>
     </message>
 </context>
 <context>
@@ -1268,10 +1340,6 @@
         <translation>Токен получен от браузера</translation>
     </message>
     <message>
-        <source>Sign in to receive a token and enable Raspberry Pi Connect.</source>
-        <translation>Войдите в систему, чтобы получить токен и включить Raspberry Pi Connect.</translation>
-    </message>
-    <message>
         <source>Open the Raspberry Pi Connect website in your browser to sign in and receive an authentication token</source>
         <translation>Откройте веб-сайт Raspberry Pi Connect в вашем браузере, чтобы войти в систему и получить токен аутентификации</translation>
     </message>
@@ -1322,6 +1390,10 @@
     <message>
         <source>Authentication token:</source>
         <translation>Токен аутентификации:</translation>
+    </message>
+    <message>
+        <source>Sign in to receive a token and enable Raspberry Pi Connect</source>
+        <translation>Войдите в систему, чтобы получить токен и активировать Raspberry Pi Connect</translation>
     </message>
 </context>
 <context>
@@ -1374,10 +1446,6 @@ Click &quot;Install Authorization&quot; to set up automatic privilege elevation,
         <translation>Использовать аутентификацию с открытым ключом</translation>
     </message>
     <message>
-        <source>Select SSH Public Key</source>
-        <translation>Выбрать открытый ключ SSH</translation>
-    </message>
-    <message>
         <source>Customisation: SSH authentication</source>
         <translation>Настройка: SSH аутентификация</translation>
     </message>
@@ -1392,18 +1460,6 @@ Click &quot;Install Authorization&quot; to set up automatic privilege elevation,
     <message>
         <source>Authentication mechanism:</source>
         <translation>Механизм аутентификации:</translation>
-    </message>
-    <message>
-        <source>Enter public key or click BROWSE</source>
-        <translation>Введите открытый ключ или нажмите кнопку ОБЗОР</translation>
-    </message>
-    <message>
-        <source>Failed to read SSH key file</source>
-        <translation>Не удалось прочитать файл ключа SSH.</translation>
-    </message>
-    <message>
-        <source>Select an SSH public key file from your computer to enable key-based authentication</source>
-        <translation>Выберите файл открытого ключа SSH на своем компьютере, чтобы включить аутентификацию на основе ключей.</translation>
     </message>
     <message>
         <source>Enable secure shell access for remote command-line control of your Raspberry Pi</source>
@@ -1430,16 +1486,8 @@ Click &quot;Install Authorization&quot; to set up automatic privilege elevation,
         <translation>Разрешить вход по SSH с использованием пары криптографических ключей вместо пароля. Более безопасно, чем аутентификация по паролю.</translation>
     </message>
     <message>
-        <source>Enter or paste your SSH public key, or use the Browse button to select a public key file (typically id_rsa.pub or id_ed25519.pub).</source>
-        <translation>Введите или вставьте свой открытый ключ SSH или используйте кнопку Обзор, чтобы выбрать файл открытого ключа (обычно id_rsa.pub или id_ed25519.pub).</translation>
-    </message>
-    <message>
         <source>Choose how you will authenticate when connecting to your Raspberry Pi via SSH. Password authentication uses the account credentials you configured. Public key authentication uses a cryptographic key pair and is more secure.</source>
         <translation>Выберите способ аутентификации при подключении к Raspberry Pi по SSH. Аутентификация по паролю использует указанные вами учётные данные. Аутентификация с открытым ключом использует пару криптографических ключей и является более безопасной.</translation>
-    </message>
-    <message>
-        <source>Public key:</source>
-        <translation>Открытый ключ:</translation>
     </message>
 </context>
 <context>
@@ -1598,6 +1646,93 @@ Click &quot;Install Authorization&quot; to set up automatic privilege elevation,
     <message>
         <source>All Files (*)</source>
         <translation>Все файлы (*)</translation>
+    </message>
+</context>
+<context>
+    <name>SshKeyManager</name>
+    <message>
+        <source>No SSH keys configured</source>
+        <translation>SSH-ключи не настроены</translation>
+    </message>
+    <message>
+        <source>1 SSH key configured</source>
+        <translation>1 настроенный SSH-ключ</translation>
+    </message>
+    <message>
+        <source>%1 SSH keys configured</source>
+        <translation>%1 Настроены SSH-ключи</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Скрыть</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>Показать</translation>
+    </message>
+    <message>
+        <source>Hide the list of SSH keys</source>
+        <translation>Скрыть список SSH-ключей</translation>
+    </message>
+    <message>
+        <source>Show the list of SSH keys</source>
+        <translation>Показать список SSH-ключей</translation>
+    </message>
+    <message>
+        <source>SSH keys list</source>
+        <translation>Список ключей SSH</translation>
+    </message>
+    <message>
+        <source>SSH key %1: %2, %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SSH key %1: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SSH key %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Remove SSH key: %1</source>
+        <translation>Удалить SSH-ключ: %1</translation>
+    </message>
+    <message>
+        <source>Remove SSH key %1</source>
+        <translation>Удалить SSH-ключ %1</translation>
+    </message>
+    <message>
+        <source>Paste key or click BROWSE to select file</source>
+        <translation>Вставьте ключ или нажмите кнопку «Обзор», чтобы выбрать файл</translation>
+    </message>
+    <message>
+        <source>SSH public key input</source>
+        <translation>Ввод открытого ключа SSH</translation>
+    </message>
+    <message>
+        <source>Paste an SSH public key here or use the browse button to select a key file</source>
+        <translation>Вставьте сюда открытый ключ SSH или воспользуйтесь кнопкой «Обзор», чтобы выбрать файл ключа</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Добавить</translation>
+    </message>
+    <message>
+        <source>Select SSH Public Key</source>
+        <translation type="unfinished">Выбрать открытый ключ SSH</translation>
+    </message>
+    <message>
+        <source>Add the entered SSH key</source>
+        <translation>Добавьте введенный SSH-ключ</translation>
+    </message>
+    <message>
+        <source>Select an SSH public key file to add</source>
+        <translation>Выберите файл открытого ключа SSH для добавления</translation>
     </message>
 </context>
 <context>
@@ -2240,6 +2375,18 @@ to show system drives.</source>
     <message>
         <source>Install system authorization to allow Raspberry Pi Imager to run with elevated privileges</source>
         <translation>Установите системную авторизацию, чтобы разрешить запуск Raspberry Pi Imager с повышенными привилегиями.</translation>
+    </message>
+    <message>
+        <source>Save Performance Data</source>
+        <translation type="unfinished">Сохранить данные о производительности</translation>
+    </message>
+    <message>
+        <source>JSON files (*.json)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation type="unfinished">Все файлы (*)</translation>
     </message>
 </context>
 </TS>

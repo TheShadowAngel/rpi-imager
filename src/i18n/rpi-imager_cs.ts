@@ -253,6 +253,10 @@
         <source>Localisation configured</source>
         <translation>Lokalizace nastavena</translation>
     </message>
+    <message>
+        <source>Authorized keys files (authorized_keys)</source>
+        <translation>Ověřené soubory s klíči (authorized_keys)</translation>
+    </message>
 </context>
 <context>
     <name>ConfirmSystemDriveDialog</name>
@@ -298,7 +302,7 @@
     </message>
     <message>
         <source>Drive name to type: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Název jednotky k zadání: %1</translation>
     </message>
     <message>
         <source>Drive name input. Type exactly: %1. %2</source>
@@ -332,7 +336,7 @@
     <name>DeviceSelectionStep</name>
     <message>
         <source>Select your Raspberry Pi device</source>
-        <translation>Vyberte vaše Raspberry Pi zařízení</translation>
+        <translation>Výběr Raspberry Pi zařízení</translation>
     </message>
     <message>
         <source>Device selection list</source>
@@ -663,6 +667,10 @@
         <source>Writing customization files...</source>
         <translation>Zapisování souborů s přizpůsobeními...</translation>
     </message>
+    <message>
+        <source>Failed to allocate buffer for MBR zeroing</source>
+        <translation>Nepodařilo se alokovat vyrovnávací paměť pro přepsání MBR nulami</translation>
+    </message>
 </context>
 <context>
     <name>DriveFormatThread</name>
@@ -676,7 +684,7 @@
     </message>
     <message>
         <source>Error seeking on device during formatting</source>
-        <translation type="unfinished"></translation>
+        <translation>Došlo k chybě při přístupu k zařízení během formátování</translation>
     </message>
     <message>
         <source>Invalid parameters for formatting</source>
@@ -860,11 +868,11 @@
     <name>ImComboBox</name>
     <message>
         <source>Type to search: "%1"</source>
-        <translation type="unfinished"></translation>
+        <translation>Zadejte pro vyhledávání: "%1"</translation>
     </message>
     <message>
         <source>(press again to cycle)</source>
-        <translation type="unfinished"></translation>
+        <translation>(stiskněte znovu pro přepnutí)</translation>
     </message>
 </context>
 <context>
@@ -905,6 +913,36 @@
         <source>File: %1</source>
         <translation>Soubor: %1</translation>
     </message>
+    <message>
+        <source>Documents</source>
+        <translation>Dokumenty</translation>
+    </message>
+    <message>
+        <source>Downloads</source>
+        <translation>Stažené</translation>
+    </message>
+    <message>
+        <source>Home</source>
+        <translation>Domovská složka</translation>
+    </message>
+    <message>
+        <source>File name:</source>
+        <translation>Název souboru:</translation>
+    </message>
+    <message>
+        <source>Enter filename…</source>
+        <translation>Zadejte název souboru…</translation>
+    </message>
+    <message>
+        <source>Navigate to a folder using the panel on the left,
+or type a path in the address bar above.</source>
+        <translation>Přejděte do složky pomocí panelu vlevo, 
+nebo zadejte cestu do adresního řádku nahoře.</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Uložit</translation>
+    </message>
 </context>
 <context>
     <name>ImOptionButton</name>
@@ -921,10 +959,44 @@
     </message>
 </context>
 <context>
+    <name>ImPasswordField</name>
+    <message>
+        <source>Password is visible. Press F2 to hide.</source>
+        <translation>Heslo je viditelné. Stisknutím F2 ho skryjete.</translation>
+    </message>
+    <message>
+        <source>Password is hidden. Press F2 to show.</source>
+        <translation>Heslo je skryté. Stisknutím F2 ho zobrazíte.</translation>
+    </message>
+    <message>
+        <source>Hide password</source>
+        <translation>Skrýt heslo</translation>
+    </message>
+    <message>
+        <source>Show password</source>
+        <translation>Zobrazit heslo</translation>
+    </message>
+    <message>
+        <source>Password is currently visible. Activate to hide it.</source>
+        <translation>Heslo je momentálně viditelné. Aktivací ho skryjete.</translation>
+    </message>
+    <message>
+        <source>Password is currently hidden. Activate to show it.</source>
+        <translation>Heslo je momentálně skryté. Aktivací ho zobrazte.</translation>
+    </message>
+</context>
+<context>
     <name>ImPopup</name>
     <message>
         <source>Dialog</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ImSaveFileDialog</name>
+    <message>
+        <source>Save File</source>
+        <translation>Uložit soubor</translation>
     </message>
 </context>
 <context>
@@ -1026,7 +1098,7 @@
     </message>
     <message>
         <source>No %1 selected.</source>
-        <translation type="unfinished"></translation>
+        <translation>Žádné %1 vybráno.</translation>
     </message>
     <message>
         <source> or </source>
@@ -1126,7 +1198,7 @@
     </message>
     <message>
         <source>Select your location for suggested time zone and keyboard layout</source>
-        <translation>Vyberte svou polohu pro doporučené časové pásmo a rozložení klávesnice</translation>
+        <translation>Vyberte svou polohu pro doporučení časového pásma a rozložení klávesnice</translation>
     </message>
     <message>
         <source>Capital city:</source>
@@ -1206,7 +1278,7 @@
     </message>
     <message>
         <source>Choose operating system</source>
-        <translation>Vyberte operační systém</translation>
+        <translation>Výběr operačního systému</translation>
     </message>
     <message>
         <source>Select an operating system to install on your Raspberry Pi</source>
@@ -1226,7 +1298,7 @@
     </message>
     <message>
         <source>%1 operating systems</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 operační systémy</translation>
     </message>
     <message>
         <source>Use arrow keys to navigate, Enter or Space to select</source>
@@ -1266,10 +1338,6 @@
     <message>
         <source>Token received from browser</source>
         <translation>Token byl získán z prohlížeče</translation>
-    </message>
-    <message>
-        <source>Sign in to receive a token and enable Raspberry Pi Connect.</source>
-        <translation>Přihlaste se pro získání tokenu a povolení Raspberry Pi Connect.</translation>
     </message>
     <message>
         <source>Open the Raspberry Pi Connect website in your browser to sign in and receive an authentication token</source>
@@ -1323,6 +1391,10 @@
         <source>Authentication token:</source>
         <translation>Ověřovací token:</translation>
     </message>
+    <message>
+        <source>Sign in to receive a token and enable Raspberry Pi Connect</source>
+        <translation>Přihlaste se, abyste získali token a povolili Raspberry Pi Connect</translation>
+    </message>
 </context>
 <context>
     <name>QObject</name>
@@ -1374,10 +1446,6 @@ Klikněte na "Nainstalovat oprávnění" pro automatické získání vyšších 
         <translation>Použít ověření veřejným klíčem</translation>
     </message>
     <message>
-        <source>Select SSH Public Key</source>
-        <translation>Vyberte veřejný SSH klíč</translation>
-    </message>
-    <message>
         <source>Customisation: SSH authentication</source>
         <translation>Přizpůsobení: SSH ověření</translation>
     </message>
@@ -1392,18 +1460,6 @@ Klikněte na "Nainstalovat oprávnění" pro automatické získání vyšších 
     <message>
         <source>Authentication mechanism:</source>
         <translation>Způsob ověření:</translation>
-    </message>
-    <message>
-        <source>Enter public key or click BROWSE</source>
-        <translation>Zadejte veřejný klíč nebo klikněte na PROCHÁZET</translation>
-    </message>
-    <message>
-        <source>Failed to read SSH key file</source>
-        <translation>Nepodařilo se přečíst soubor s SSH klíčem</translation>
-    </message>
-    <message>
-        <source>Select an SSH public key file from your computer to enable key-based authentication</source>
-        <translation>Vyberte soubor veřejného SSH klíče ze svého počítače pro povolení ověřování pomocí klíče</translation>
     </message>
     <message>
         <source>Enable secure shell access for remote command-line control of your Raspberry Pi</source>
@@ -1430,16 +1486,8 @@ Klikněte na "Nainstalovat oprávnění" pro automatické získání vyšších 
         <translation>Povolit přihlášení přes SSH pomocí kryptografického páru klíčů místo hesla. Bezpečnější než přihlašování heslem.</translation>
     </message>
     <message>
-        <source>Enter or paste your SSH public key, or use the Browse button to select a public key file (typically id_rsa.pub or id_ed25519.pub).</source>
-        <translation>Zadejte nebo zkopírujte váš veřejný SSH klíč, nebo stiskněte tlačítko Procházet a vyberte soubor s veřejným klíčem (obvykle id_rsa.pub or id_ed25519.pub).</translation>
-    </message>
-    <message>
         <source>Choose how you will authenticate when connecting to your Raspberry Pi via SSH. Password authentication uses the account credentials you configured. Public key authentication uses a cryptographic key pair and is more secure.</source>
         <translation>Vyberte, jak budete ověřovat připojení k Raspberry Pi přes SSH. Ověření pomocí hesla používá přihlašovací údaje vámi nastaveného účtu. Ověření pomocí veřejného klíče využívá kryptografický pár klíčů a je bezpečnější.</translation>
-    </message>
-    <message>
-        <source>Public key:</source>
-        <translation>Veřejný klíč:</translation>
     </message>
 </context>
 <context>
@@ -1601,6 +1649,93 @@ Klikněte na "Nainstalovat oprávnění" pro automatické získání vyšších 
     </message>
 </context>
 <context>
+    <name>SshKeyManager</name>
+    <message>
+        <source>No SSH keys configured</source>
+        <translation>Nejsou nastaveny žádné SSH klíče</translation>
+    </message>
+    <message>
+        <source>1 SSH key configured</source>
+        <translation>1 SSH klíč nastaven</translation>
+    </message>
+    <message>
+        <source>%1 SSH keys configured</source>
+        <translation>%1 SSH klíče(ů) nastaveno</translation>
+    </message>
+    <message>
+        <source>Hide</source>
+        <translation>Skrýt</translation>
+    </message>
+    <message>
+        <source>Show</source>
+        <translation>Zobrazit</translation>
+    </message>
+    <message>
+        <source>Hide the list of SSH keys</source>
+        <translation>Skrýt seznam SSH klíčů</translation>
+    </message>
+    <message>
+        <source>Show the list of SSH keys</source>
+        <translation>Zobrazit seznam SSH klíčů</translation>
+    </message>
+    <message>
+        <source>SSH keys list</source>
+        <translation>Seznam SSH klíčů</translation>
+    </message>
+    <message>
+        <source>SSH key %1: %2, %3</source>
+        <translation>SSH klíč %1: %2, %3</translation>
+    </message>
+    <message>
+        <source>SSH key %1: %2</source>
+        <translation>SSH klíč %1: %2</translation>
+    </message>
+    <message>
+        <source>SSH key %1</source>
+        <translation>SSH klíč %1</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Odebrat</translation>
+    </message>
+    <message>
+        <source>Remove SSH key: %1</source>
+        <translation>Odebrat SSH klíč: %1</translation>
+    </message>
+    <message>
+        <source>Remove SSH key %1</source>
+        <translation>Odebrat SSH klíč %1</translation>
+    </message>
+    <message>
+        <source>Paste key or click BROWSE to select file</source>
+        <translation>Vložte klíč nebo klikněte na PROCHÁZET a vyberte soubor</translation>
+    </message>
+    <message>
+        <source>SSH public key input</source>
+        <translation>Zadání veřejného SSH klíče</translation>
+    </message>
+    <message>
+        <source>Paste an SSH public key here or use the browse button to select a key file</source>
+        <translation>Zde vlložte veřejný SSH klíč, nebo pomocí tlačítka Procházet vyberte soubor s klíčem</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>Přidat</translation>
+    </message>
+    <message>
+        <source>Select SSH Public Key</source>
+        <translation>Vyberte veřejný SSH klíč</translation>
+    </message>
+    <message>
+        <source>Add the entered SSH key</source>
+        <translation>Přidat zadaný SSH klíč</translation>
+    </message>
+    <message>
+        <source>Select an SSH public key file to add</source>
+        <translation>Vyberte soubor s veřejným SSH klíčem, který chcete přidat</translation>
+    </message>
+</context>
+<context>
     <name>StorageSelectionStep</name>
     <message>
         <source>No storage devices found</source>
@@ -1616,7 +1751,7 @@ Klikněte na "Nainstalovat oprávnění" pro automatické získání vyšších 
     </message>
     <message>
         <source>Select your storage device</source>
-        <translation>Vyberte vaše úložné zařízení</translation>
+        <translation>Výběr úložného zařízení</translation>
     </message>
     <message>
         <source>Exclude system drives</source>
@@ -1708,7 +1843,7 @@ abyste zobrazili systémové disky.</translation>
     <name>UserCustomizationStep</name>
     <message>
         <source>Username:</source>
-        <translation>Jméno uživatele:</translation>
+        <translation>Uživatelské jméno:</translation>
     </message>
     <message>
         <source>Enter password</source>
@@ -1791,7 +1926,7 @@ abyste zobrazili systémové disky.</translation>
     </message>
     <message>
         <source>Network password</source>
-        <translation>Síťové heslo</translation>
+        <translation>Heslo sítě</translation>
     </message>
     <message>
         <source>Hidden SSID</source>
@@ -1910,11 +2045,11 @@ abyste zobrazili systémové disky.</translation>
     </message>
     <message>
         <source>Writing</source>
-        <translation>Zapisování</translation>
+        <translation>Zápis</translation>
     </message>
     <message>
         <source>Done</source>
-        <translation>Hotovo</translation>
+        <translation>Dokončení</translation>
     </message>
     <message>
         <source>Customisation</source>
@@ -2024,7 +2159,7 @@ abyste zobrazili systémové disky.</translation>
     <name>WritingStep</name>
     <message>
         <source>Review your choices and write the image to the storage device</source>
-        <translation>Zkontrolujte své volby a zapište image na úložné zařízení</translation>
+        <translation>Zkontrolujte své volby a zapište obraz na úložné zařízení</translation>
     </message>
     <message>
         <source>Write</source>
@@ -2084,7 +2219,7 @@ abyste zobrazili systémové disky.</translation>
     </message>
     <message>
         <source>Write image</source>
-        <translation>Zapsat obraz</translation>
+        <translation>Zápis obrazu</translation>
     </message>
     <message>
         <source>Operating system:</source>
@@ -2096,7 +2231,7 @@ abyste zobrazili systémové disky.</translation>
     </message>
     <message>
         <source>Confirm erasure and begin writing the image to the storage device</source>
-        <translation>Potvrdit vymazání a zahájit zápis image na úložné zařízení</translation>
+        <translation>Potvrdit vymazání a zahájit zápis obraz na úložné zařízení</translation>
     </message>
     <message>
         <source>Skip verification</source>
@@ -2203,7 +2338,7 @@ abyste zobrazili systémové disky.</translation>
     </message>
     <message>
         <source>Close the storage removed notification and return to storage selection</source>
-        <translation type="unfinished"></translation>
+        <translation>Zavřít oznámení o odebrání úložiště a vrátit se k výběru úložiště</translation>
     </message>
     <message>
         <source>Return to Raspberry Pi Imager and continue the current operation</source>
@@ -2240,6 +2375,18 @@ abyste zobrazili systémové disky.</translation>
     <message>
         <source>Install system authorization to allow Raspberry Pi Imager to run with elevated privileges</source>
         <translation>Nainstalovat systémové oprávnění, aby mohl Raspberry Pi Imager běžet s vyššími právy</translation>
+    </message>
+    <message>
+        <source>Save Performance Data</source>
+        <translation>Uložit data o výkonu</translation>
+    </message>
+    <message>
+        <source>JSON files (*.json)</source>
+        <translation>JSON soubory (*.json)</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>Všechny soubory (*)</translation>
     </message>
 </context>
 </TS>

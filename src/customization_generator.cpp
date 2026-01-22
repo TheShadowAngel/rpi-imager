@@ -83,8 +83,10 @@ QByteArray CustomisationGenerator::generateSystemdScript(const QVariantMap& s, c
     QString cryptedPsk = cryptedPskFromSettings;
     if (cryptedPsk.isEmpty()) {
         const QString legacyPwd = s.value("wifiPassword").toString();
-        const bool isPassphrase = (legacyPwd.length() >= 8 && legacyPwd.length() < 64);
-        cryptedPsk = isPassphrase ? pbkdf2(legacyPwd.toUtf8(), ssid.toUtf8()) : legacyPwd;
+        if (!legacyPwd.isEmpty()) {
+            const bool isPassphrase = (legacyPwd.length() >= 8 && legacyPwd.length() < 64);
+            cryptedPsk = isPassphrase ? pbkdf2(legacyPwd.toUtf8(), ssid.toUtf8()) : legacyPwd;
+        }
     }
     
     // Prepare SSH key arguments for imager_custom
@@ -198,11 +200,17 @@ QByteArray CustomisationGenerator::generateSystemdScript(const QVariantMap& s, c
         escapedSsid.replace("\\", "\\\\");  // Backslash must be escaped first
         escapedSsid.replace("\"", "\\\"");  // Then escape quotes
         line(QStringLiteral("\tssid=\"") + escapedSsid + QStringLiteral("\""), script);
-        // WPA2/WPA3 transition mode: allow connection to both WPA2-PSK and WPA3-SAE networks
-        line(QStringLiteral("\tkey_mgmt=WPA-PSK SAE"), script);
-        line(QStringLiteral("\tpsk=") + cryptedPsk, script);
-        // ieee80211w=1 enables optional Protected Management Frames (required for WPA3, optional for WPA2)
-        line(QStringLiteral("\tieee80211w=1"), script);
+        if (cryptedPsk.isEmpty()) {
+            // Open network (no password) - use key_mgmt=NONE
+            // See: https://github.com/raspberrypi/rpi-imager/issues/1396
+            line(QStringLiteral("\tkey_mgmt=NONE"), script);
+        } else {
+            // WPA2/WPA3 transition mode: allow connection to both WPA2-PSK and WPA3-SAE networks
+            line(QStringLiteral("\tkey_mgmt=WPA-PSK SAE"), script);
+            line(QStringLiteral("\tpsk=") + cryptedPsk, script);
+            // ieee80211w=1 enables optional Protected Management Frames (required for WPA3, optional for WPA2)
+            line(QStringLiteral("\tieee80211w=1"), script);
+        }
         line(QStringLiteral("}"), script);
         line(QStringLiteral("WPAEOF"), script);
         line(QStringLiteral("   chmod 600 /etc/wpa_supplicant/wpa_supplicant.conf"), script);
@@ -330,8 +338,9 @@ QByteArray CustomisationGenerator::generateCloudInitUserData(const QVariantMap& 
     if (!hostname.isEmpty()) {
         push(QStringLiteral("hostname: ") + hostname, cloud);
         push(QStringLiteral("manage_etc_hosts: true"), cloud);
-        // Allow local hostname changes after first boot (don't let cloud-init overwrite)
-        push(QStringLiteral("preserve_hostname: true"), cloud);
+        // Note: We don't set preserve_hostname: true here because it would prevent
+        // cloud-init from setting the hostname on first boot. Cloud-init's per-instance
+        // behavior (via unique instance-id) ensures hostname is only set once.
         // Parity with legacy QML: install avahi-daemon and disable apt Check-Date on first boot
         push(QStringLiteral("packages:"), cloud);
         push(QStringLiteral("- avahi-daemon"), cloud);
@@ -550,14 +559,24 @@ QByteArray CustomisationGenerator::generateCloudInitNetworkConfig(const QVariant
     const bool hidden = settings.value("wifiHidden").toBool();
     const QString regDom = settings.value("recommendedWifiCountry").toString().trimmed().toUpper();
     
-    // Generate network config only if we have an SSID
+    // Always generate network config with eth0 DHCP configuration
+    // This ensures wired ethernet works out of the box with both IPv4 and IPv6
+    push(QStringLiteral("network:"), netcfg);
+    push(QStringLiteral("  version: 2"), netcfg);
+    
+    // Configure eth0 with DHCP for both IPv4 and IPv6
+    push(QStringLiteral("  ethernets:"), netcfg);
+    push(QStringLiteral("    eth0:"), netcfg);
+    push(QStringLiteral("      dhcp4: true"), netcfg);
+    push(QStringLiteral("      dhcp6: true"), netcfg);
+    push(QStringLiteral("      optional: true"), netcfg);
+    
+    // Generate WiFi config if we have an SSID
     // Cloud-init requires at least one access-point if wifis: is defined, so we can't
-    // generate network config with just a regulatory domain. When we have an SSID, we set
+    // generate wifis config with just a regulatory domain. When we have an SSID, we set
     // the regulatory domain in the network config here. When there's no SSID, the regulatory
     // domain is set via cmdline parameter (cfg80211.ieee80211_regdom) in imagewriter.cpp
     if (!ssid.isEmpty()) {
-        push(QStringLiteral("network:"), netcfg);
-        push(QStringLiteral("  version: 2"), netcfg);
         push(QStringLiteral("  wifis:"), netcfg);
         push(QStringLiteral("    wlan0:"), netcfg);
         push(QStringLiteral("      dhcp4: true"), netcfg);
@@ -582,12 +601,19 @@ QByteArray CustomisationGenerator::generateCloudInitNetworkConfig(const QVariant
                 effectiveCryptedPsk = isPassphrase ? pbkdf2(legacyPwd.toUtf8(), ssid.toUtf8()) : legacyPwd;
             }
         }
-        // Required because without a password and hidden netplan would read ssid: null and crash
-        effectiveCryptedPsk.replace('"', QStringLiteral("\\\""));
-        // Use password shorthand at access-point level (not inside auth: block)
-        // This makes netplan automatically enable WPA2/WPA3 transition mode with PMF optional
-        // See: https://github.com/canonical/netplan/blob/main/src/parse.c (handle_access_point_password)
-        push(QStringLiteral("          password: \"") + effectiveCryptedPsk + QStringLiteral("\""), netcfg);
+        if (effectiveCryptedPsk.isEmpty()) {
+            // Open network (no password) - use auth block with key-management: none
+            // See: https://github.com/raspberrypi/rpi-imager/issues/1396
+            push(QStringLiteral("          auth:"), netcfg);
+            push(QStringLiteral("            key-management: none"), netcfg);
+        } else {
+            // Required because without proper escaping netplan would fail to parse
+            effectiveCryptedPsk.replace('"', QStringLiteral("\\\""));
+            // Use password shorthand at access-point level (not inside auth: block)
+            // This makes netplan automatically enable WPA2/WPA3 transition mode with PMF optional
+            // See: https://github.com/canonical/netplan/blob/main/src/parse.c (handle_access_point_password)
+            push(QStringLiteral("          password: \"") + effectiveCryptedPsk + QStringLiteral("\""), netcfg);
+        }
         
         push(QStringLiteral("      optional: true"), netcfg);
     }

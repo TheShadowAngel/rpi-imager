@@ -65,6 +65,10 @@ WizardStepBase {
     property bool isFinalising: false
     property bool isComplete: false
     property bool confirmOpen: false
+    property string bottleneckStatus: ""
+    property int writeThroughputKBps: 0
+    property string operationWarning: ""  // Non-fatal warning message (e.g., sync fallback)
+    property bool isIndeterminateProgress: false  // True when we can't determine accurate progress (e.g., gz files >4GB)
     readonly property bool anyCustomizationsApplied: (
         wizardContainer.customizationSupported && (
             wizardContainer.hostnameConfigured ||
@@ -134,7 +138,7 @@ WizardStepBase {
                     activeFocusOnTab: root.imageWriter ? root.imageWriter.isScreenReaderActive() : false
                 }
 
-                Text {
+                MarqueeText {
                     id: deviceValue
                     text: wizardContainer.selectedDeviceName || CommonStrings.noDeviceSelected
                     font.pixelSize: Style.fontSizeDescription
@@ -142,18 +146,7 @@ WizardStepBase {
                     font.bold: true
                     color: Style.formLabelColor
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
                     Accessible.ignored: true  // Read as part of the label
-
-                    ToolTip.text: text
-                    ToolTip.visible: truncated && deviceValueMouseArea.containsMouse
-                    ToolTip.delay: 500
-                    MouseArea {
-                        id: deviceValueMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
-                    }
                 }
 
                 Text {
@@ -169,7 +162,7 @@ WizardStepBase {
                     activeFocusOnTab: root.imageWriter ? root.imageWriter.isScreenReaderActive() : false
                 }
 
-                Text {
+                MarqueeText {
                     id: osValue
                     text: wizardContainer.selectedOsName || CommonStrings.noImageSelected
                     font.pixelSize: Style.fontSizeDescription
@@ -177,18 +170,7 @@ WizardStepBase {
                     font.bold: true
                     color: Style.formLabelColor
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
                     Accessible.ignored: true  // Read as part of the label
-
-                    ToolTip.text: text
-                    ToolTip.visible: truncated && osValueMouseArea.containsMouse
-                    ToolTip.delay: 500
-                    MouseArea {
-                        id: osValueMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
-                    }
                 }
 
                 Text {
@@ -204,7 +186,7 @@ WizardStepBase {
                     activeFocusOnTab: root.imageWriter ? root.imageWriter.isScreenReaderActive() : false
                 }
 
-                Text {
+                MarqueeText {
                     id: storageValue
                     text: wizardContainer.selectedStorageName || CommonStrings.noStorageSelected
                     font.pixelSize: Style.fontSizeDescription
@@ -212,18 +194,7 @@ WizardStepBase {
                     font.bold: true
                     color: Style.formLabelColor
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
                     Accessible.ignored: true  // Read as part of the label
-
-                    ToolTip.text: text
-                    ToolTip.visible: truncated && storageValueMouseArea.containsMouse
-                    ToolTip.delay: 500
-                    MouseArea {
-                        id: storageValueMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
-                    }
                 }
             }
         }
@@ -351,6 +322,7 @@ WizardStepBase {
                 value: 0
                 from: 0
                 to: 100
+                indeterminate: root.isIndeterminateProgress && !root.isVerifying && !root.isFinalising
 
                 Material.accent: Style.progressBarVerifyForegroundColor
                 Material.background: Style.progressBarBackgroundColor
@@ -358,6 +330,39 @@ WizardStepBase {
                 Accessible.role: Accessible.ProgressBar
                 Accessible.name: qsTr("Write progress")
                 Accessible.description: progressText.text
+            }
+            
+            // Bottleneck status indicator - shows what's limiting progress
+            Text {
+                id: bottleneckText
+                text: {
+                    if (root.bottleneckStatus !== "") {
+                        if (root.writeThroughputKBps > 0) {
+                            return root.bottleneckStatus + " (" + Math.round(root.writeThroughputKBps / 1024) + " MB/s)"
+                        }
+                        return root.bottleneckStatus
+                    }
+                    return ""
+                }
+                font.pixelSize: Style.fontSizeSmall
+                font.family: Style.fontFamily
+                color: Style.formLabelDisabledColor
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                visible: root.isWriting && root.bottleneckStatus !== ""
+            }
+            
+            // Operation warning (e.g., sync fallback due to slow device)
+            Text {
+                id: operationWarningText
+                text: "⚠ " + root.operationWarning
+                font.pixelSize: Style.fontSizeSmall
+                font.family: Style.fontFamily
+                color: "#FFA500"  // Orange/amber for warning
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                visible: root.isWriting && root.operationWarning !== ""
             }
         }
 
@@ -435,9 +440,17 @@ WizardStepBase {
         }
 
         onOpened: {
-            allowAccept = false
-            countdown = 2
-            confirmDelay.start()
+            // If a screen reader is active, bypass the timer - screen reader users
+            // need time to hear the content, not wait for a visual countdown
+            if (confirmDialog.imageWriter && confirmDialog.imageWriter.isScreenReaderActive()) {
+                allowAccept = true
+                countdown = 0
+                rebuildFocusOrder()
+            } else {
+                allowAccept = false
+                countdown = 2
+                confirmDelay.start()
+            }
         }
         onClosed: {
             confirmDelay.stop()
@@ -553,6 +566,11 @@ WizardStepBase {
             root.forceActiveFocus()
             root.isWriting = true
             wizardContainer.isWriting = true
+            root.bottleneckStatus = ""
+            root.writeThroughputKBps = 0
+            root.operationWarning = ""
+            // Check if extract size is known upfront (e.g., gz files can't reliably store sizes >4GB)
+            root.isIndeterminateProgress = !imageWriter.isExtractSizeKnown()
             progressText.text = qsTr("Starting write process...")
             progressBar.value = 0
             Qt.callLater(function(){ imageWriter.startWrite() })
@@ -560,16 +578,29 @@ WizardStepBase {
     }
 
     function onDownloadProgress(now, total) {
+        // Download progress is tracked for performance stats but not shown in UI
+        // (the write progress is more accurate as it reflects actual data written to disk)
+    }
+
+    function onWriteProgress(now, total) {
         if (root.isWriting) {
-            var progress = total > 0 ? (now / total) * 100 : 0
-            progressBar.value = progress
-            progressText.text = qsTr("Writing... %1%").arg(Math.round(progress))
+            if (root.isIndeterminateProgress) {
+                // Show indeterminate progress with bytes written (in human-readable format)
+                var bytesWrittenMB = Math.round(now / (1024 * 1024))
+                progressText.text = qsTr("Writing... %1 MB written").arg(bytesWrittenMB)
+            } else {
+                var progress = total > 0 ? (now / total) * 100 : 0
+                progressBar.value = progress
+                progressText.text = qsTr("Writing... %1%").arg(Math.round(progress))
+            }
         }
     }
 
     function onVerifyProgress(now, total) {
         if (root.isWriting) {
             root.isVerifying = true
+            root.bottleneckStatus = ""  // Clear write bottleneck during verification
+            root.operationWarning = ""  // Clear write warnings during verification
             var progress = total > 0 ? (now / total) * 100 : 0
             progressBar.value = progress
             progressText.text = qsTr("Verifying... %1%").arg(Math.round(progress))
@@ -611,6 +642,15 @@ WizardStepBase {
                 progressText.text = qsTr("Finalising…")
                 progressBar.value = 100
             }
+        }
+        
+        function onBottleneckStatusChanged(status, throughputKBps) {
+            root.bottleneckStatus = status
+            root.writeThroughputKBps = throughputKBps
+        }
+        
+        function onOperationWarning(message) {
+            root.operationWarning = message
         }
     }
     

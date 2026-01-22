@@ -23,11 +23,14 @@ Item {
     // Expose network info text for embedded mode status updates
     property string networkInfoText: ""
     
-    // Check network connectivity at startup
-    readonly property bool hasNetworkConnectivity: PlatformHelper.hasNetworkConnectivity()
+    // Track whether we have network connectivity (derived from OS list availability)
+    // This updates reactively when OS list becomes available after a retry
+    readonly property bool hasNetworkConnectivity: !imageWriter.isOsListUnavailable
     
-    // Start at device selection if online, otherwise skip to OS selection
-    property int currentStep: hasNetworkConnectivity ? 0 : 1
+    // Current wizard step - initialized in Component.onCompleted based on network state.
+    // NOT a binding, so it won't auto-change when hasNetworkConnectivity changes.
+    // The onOsListUnavailableChanged handler manages the offline→online transition.
+    property int currentStep: 0
     readonly property int totalSteps: 13
     
     // Track which steps have been made permissible/unlocked for navigation
@@ -105,6 +108,8 @@ Item {
     })
     
     // Wizard steps enum
+    // Language selection is -1 (special pre-step, only shown when showLanguageSelection is true)
+    readonly property int stepLanguageSelection: -1
     readonly property int stepDeviceSelection: 0
     readonly property int stepOSSelection: 1
     readonly property int stepStorageSelection: 2
@@ -120,6 +125,7 @@ Item {
     readonly property int stepDone: 12
     
     signal wizardCompleted()
+    signal updatePopupRequested(url updateUrl, string version)
     
     // Focus anchor for global keyboard navigation
     Item {
@@ -147,6 +153,16 @@ Item {
     }
 
     Component.onCompleted: {
+        // Set initial step based on language selection preference and network connectivity at startup.
+        // Language selection step is shown first if requested, then device selection (if online) or OS selection (if offline).
+        if (showLanguageSelection) {
+            currentStep = stepLanguageSelection
+        } else if (hasNetworkConnectivity) {
+            currentStep = stepDeviceSelection
+        } else {
+            currentStep = stepOSSelection
+        }
+        
         // Default to disabling warnings in embedded mode (per-run, non-persistent)
         if (imageWriter && imageWriter.isEmbeddedMode()) {
             disableWarnings = true
@@ -160,6 +176,20 @@ Item {
             // Check if secure boot RSA key is configured
             var rsaKeyPath = imageWriter.getStringSetting("secureboot_rsa_key")
             secureBootKeyConfigured = (rsaKeyPath && rsaKeyPath.length > 0)
+        }
+    }
+    
+    // Handle OS list availability changes
+    Connections {
+        target: imageWriter
+        function onOsListUnavailableChanged() {
+            // When OS list becomes available after starting offline, navigate to device
+            // selection so the user can choose their target device (now that the list is available).
+            // Guard: don't interrupt an active write operation.
+            if (root.hasNetworkConnectivity && root.currentStep === root.stepOSSelection && !root.isWriting) {
+                console.log("OS list now available - navigating to device selection")
+                root.jumpToStep(root.stepDeviceSelection)
+            }
         }
     }
 
@@ -461,7 +491,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: Style.spacingSmall
                                 spacing: Style.spacingTiny
-                                Text {
+                                MarqueeText {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
                                     text: stepItem.modelData
@@ -472,7 +502,6 @@ Item {
                                                : (stepItem.index === root.getSidebarIndex(root.currentStep)
                                                    ? Style.sidebarTextOnActiveColor
                                                    : Style.sidebarTextOnInactiveColor)
-                                    elide: Text.ElideRight
                                 }
                             }
                         }
@@ -573,7 +602,7 @@ Item {
                                         anchors.verticalCenter: parent.verticalCenter
                                         anchors.margins: Style.spacingSmall
                                         anchors.leftMargin: Style.spacingMedium
-                                        Text {
+                                        MarqueeText {
                                             id: subLabel
                                             Layout.fillWidth: true
                                             Layout.alignment: Qt.AlignVCenter
@@ -585,7 +614,6 @@ Item {
                                             color: (!root.customizationSupported || !subItem.isClickable)
                                                        ? Style.formLabelDisabledColor
                                                        : Style.sidebarTextOnInactiveColor
-                                            elide: Text.ElideRight
                                         }
                                     }
                                 }
@@ -837,6 +865,7 @@ Item {
     
     function getStepComponent(stepIndex) {
         switch(stepIndex) {
+            case stepLanguageSelection: return languageSelectionStep
             case stepDeviceSelection: return deviceSelectionStep
             case stepOSSelection: return osSelectionStep
             case stepStorageSelection: return storageSelectionStep
@@ -893,6 +922,7 @@ Item {
             appOptionsButton: optionsButton
             onNextClicked: root.nextStep()
             onBackClicked: root.previousStep()
+            onUpdatePopupRequested: function(url, version) { root.updatePopupRequested(url, version) }
         }
     }
     
@@ -1199,6 +1229,187 @@ Item {
             piConnectEnabled = false
             delete customizationSettings.piConnectEnabled
         }
+        
+        // Handle repository URL received from deep link (rpi-imager://open?repo=...)
+        function onRepositoryUrlReceived(url) {
+            repositoryUrlDialog.openWithUrl(url)
+        }
+    }
+
+    // Repository URL confirmation dialog — shown when a deep link contains a custom repo URL
+    BaseDialog {
+        id: repositoryUrlDialog
+        imageWriter: root.imageWriter
+        parent: root
+        anchors.centerIn: parent
+
+        // carry the repository URL we just received
+        property string repoUrl: ""
+        property bool allowAccept: false
+        property bool isLocalFile: repoUrl.startsWith("file://")
+
+        // small safety delay before enabling "Switch" (only for remote URLs)
+        Timer {
+            id: repoAcceptEnableDelay
+            interval: 1500
+            running: false
+            repeat: false
+            onTriggered: {
+                repositoryUrlDialog.allowAccept = true
+                // Rebuild focus order now that switch button is enabled
+                repositoryUrlDialog.rebuildFocusOrder()
+            }
+        }
+
+        function openWithUrl(url) {
+            // If dialog is already open with a different URL, ignore the new one
+            // User must dismiss current dialog first (prevents race condition attacks)
+            if (repositoryUrlDialog.opened && repoUrl !== url) {
+                console.warn("Repository dialog already open, ignoring new URL:", url)
+                return
+            }
+            
+            repoUrl = url
+            // Local files are trusted, allow immediate acceptance
+            if (url.startsWith("file://")) {
+                allowAccept = true
+            } else {
+                allowAccept = false
+                repoAcceptEnableDelay.start()
+            }
+            repositoryUrlDialog.open()
+        }
+
+        // ESC closes
+        function escapePressed() { repositoryUrlDialog.close() }
+
+        Component.onCompleted: {
+            // match your focus group style
+            registerFocusGroup("repo_url_content", function() {
+                // Only include text elements when screen reader is active (otherwise they're not focusable)
+                if (repositoryUrlDialog.imageWriter && repositoryUrlDialog.imageWriter.isScreenReaderActive()) {
+                    return [repoTitleText, repoBodyText, repoUrlText]
+                }
+                return []
+            }, 0)
+            registerFocusGroup("repo_url_buttons", function() {
+                return [repoCancelBtn, repoSwitchBtn]
+            }, 1)
+        }
+
+        onClosed: {
+            repoAcceptEnableDelay.stop()
+            allowAccept = false
+            repoUrl = ""
+        }
+
+        // ----- CONTENT -----
+        Text {
+            id: repoTitleText
+            text: repositoryUrlDialog.isLocalFile 
+                ? qsTr("Open local repository file?")
+                : qsTr("Switch to a custom repository?")
+            font.pixelSize: Style.fontSizeHeading
+            font.family: Style.fontFamilyBold
+            font.bold: true
+            color: Style.formLabelColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            Accessible.role: Accessible.Heading
+            Accessible.name: text
+            Accessible.ignored: false
+            Accessible.focusable: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+            focusPolicy: (repositoryUrlDialog.imageWriter && repositoryUrlDialog.imageWriter.isScreenReaderActive()) ? Qt.TabFocus : Qt.NoFocus
+            activeFocusOnTab: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+        }
+
+        // Body / security note
+        Text {
+            id: repoBodyText
+            text: repositoryUrlDialog.isLocalFile
+                ? qsTr("You are opening a local Raspberry Pi Imager manifest file. This will replace the current OS list with the contents of this file.")
+                : qsTr("A website is requesting to switch Raspberry Pi Imager to use a custom OS repository.\n\n") +
+                  qsTr("Only accept if you trust this source and intentionally clicked a link to open this repository.")
+            font.pixelSize: Style.fontSizeFormLabel
+            font.family: Style.fontFamily
+            color: Style.formLabelColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
+            Accessible.ignored: false
+            Accessible.focusable: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+            focusPolicy: (repositoryUrlDialog.imageWriter && repositoryUrlDialog.imageWriter.isScreenReaderActive()) ? Qt.TabFocus : Qt.NoFocus
+            activeFocusOnTab: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+        }
+        
+        // Show the URL being requested
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.topMargin: Style.spacingSmall
+            Layout.preferredHeight: repoUrlText.implicitHeight + Style.spacingSmall * 2
+            color: Style.titleBackgroundColor
+            border.color: Style.popupBorderColor
+            border.width: 1
+            radius: Style.listItemBorderRadius
+            
+            Text {
+                id: repoUrlText
+                anchors.fill: parent
+                anchors.margins: Style.spacingSmall
+                text: repositoryUrlDialog.repoUrl
+                font.pixelSize: Style.fontSizeCaption
+                font.family: "monospace"
+                color: Style.formLabelColor
+                wrapMode: Text.WrapAnywhere
+                elide: Text.ElideMiddle
+                maximumLineCount: 3
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Repository URL: %1").arg(repositoryUrlDialog.repoUrl)
+                Accessible.ignored: false
+                Accessible.focusable: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+                focusPolicy: (repositoryUrlDialog.imageWriter && repositoryUrlDialog.imageWriter.isScreenReaderActive()) ? Qt.TabFocus : Qt.NoFocus
+                activeFocusOnTab: repositoryUrlDialog.imageWriter ? repositoryUrlDialog.imageWriter.isScreenReaderActive() : false
+            }
+        }
+
+        // Buttons row
+        RowLayout {
+            id: repoBtnRow
+            Layout.fillWidth: true
+            Layout.topMargin: Style.spacingSmall
+            spacing: Style.spacingMedium
+
+            Item { Layout.fillWidth: true }
+
+            ImButton {
+                id: repoSwitchBtn
+                text: {
+                    if (!repositoryUrlDialog.allowAccept) return qsTr("Please wait…")
+                    return repositoryUrlDialog.isLocalFile ? qsTr("Open") : qsTr("Switch repository")
+                }
+                accessibleDescription: repositoryUrlDialog.isLocalFile
+                    ? qsTr("Open the local manifest file and use it as the OS repository")
+                    : qsTr("Switch to the custom repository from the link")
+                enabled: repositoryUrlDialog.allowAccept
+                activeFocusOnTab: true
+                onClicked: {
+                    repositoryUrlDialog.close()
+                    // Switch to the new repository and reset wizard
+                    // QML auto-converts string to QUrl for C++ method
+                    root.imageWriter.refreshOsListFrom(repositoryUrlDialog.repoUrl)
+                    root.resetWizard()
+                }
+            }
+
+            ImButtonRed {
+                id: repoCancelBtn
+                text: qsTr("Cancel")
+                accessibleDescription: qsTr("Keep your current repository settings")
+                activeFocusOnTab: true
+                onClicked: repositoryUrlDialog.close()
+            }
+        }
     }
 
     
@@ -1231,6 +1442,13 @@ Item {
         // Forward to the WritingStep if currently active
         if (currentStep === stepWriting && wizardStack.currentItem) {
             wizardStack.currentItem.onDownloadProgress(now, total)
+        }
+    }
+    
+    function onWriteProgress(now, total) {
+        // Forward to the WritingStep if currently active
+        if (currentStep === stepWriting && wizardStack.currentItem) {
+            wizardStack.currentItem.onWriteProgress(now, total)
         }
     }
     

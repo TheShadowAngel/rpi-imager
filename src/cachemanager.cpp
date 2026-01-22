@@ -119,6 +119,26 @@ bool CacheManager::isCached(const QByteArray& expectedHash) const
     return result;
 }
 
+bool CacheManager::hasPotentialCache(const QByteArray& expectedHash) const
+{
+    QMutexLocker locker(&mutex_);
+    // Check if we have a potential cache match (hash matches, file exists)
+    // Does NOT require verification to be complete - used to decide whether to start verification
+    bool result = !expectedHash.isEmpty() && 
+                  status_.cachedHash == expectedHash && 
+                  !status_.cacheFileName.isEmpty() &&
+                  QFile::exists(status_.cacheFileName);
+    
+    if (result) {
+        qDebug() << "Potential cache found for hash:" << expectedHash 
+                 << "file:" << status_.cacheFileName
+                 << "verified:" << status_.verificationComplete
+                 << "valid:" << status_.isValid;
+    }
+    
+    return result;
+}
+
 QString CacheManager::getCacheFilePath(const QByteArray& expectedHash) const
 {
     QMutexLocker locker(&mutex_);
@@ -227,7 +247,10 @@ void CacheManager::startVerification(const QByteArray& expectedHash)
             cacheFileName = status.cacheFileName;
             hashToVerify = expectedHash; // For custom cache files, verify against expected hash
         } else {
-            cacheFileName = getDefaultCacheFilePath();
+            // Use the stored cache file path if available (loaded from settings),
+            // otherwise use the default path. This ensures we verify the actual
+            // cache file that exists, not a path that might differ due to app name changes.
+            cacheFileName = status.cacheFileName.isEmpty() ? getDefaultCacheFilePath() : status.cacheFileName;
             // For regular cache files, verify against the stored compressed hash (cache file contains compressed data)
             hashToVerify = status.cacheFileHash.isEmpty() ? expectedHash : status.cacheFileHash;
         }
@@ -278,8 +301,9 @@ bool CacheManager::setupCacheForDownload(const QByteArray& expectedHash, qint64 
     return true;
 }
 
-void CacheManager::onVerificationComplete(bool isValid, const QString& fileName, const QByteArray& hash)
+void CacheManager::onVerificationComplete(bool isValid, const QString& fileName, const QByteArray& expectedHash, const QByteArray& computedHash)
 {
+    Q_UNUSED(expectedHash);  // Already stored in status.cacheFileHash
     QByteArray uncompressedHashForUI;
     
     updateCacheStatus([&](CacheStatus& status) {
@@ -287,11 +311,13 @@ void CacheManager::onVerificationComplete(bool isValid, const QString& fileName,
         status.verificationComplete = true;
         status.cacheFileName = fileName;
         // Don't overwrite cachedHash - it already contains the uncompressed hash for UI matching
-        // The 'hash' parameter is the compressed hash used for verification
+        // Store the computed hash for performance diagnostics
+        status.computedHash = computedHash;
         uncompressedHashForUI = status.cachedHash; // Get the uncompressed hash for UI update
     });
     
-    qDebug() << "Cache verification:" << (isValid ? "valid" : "invalid") << fileName;
+    qDebug() << "Cache verification:" << (isValid ? "valid" : "invalid") << fileName
+             << "expected:" << expectedHash << "computed:" << computedHash;
     
     emit cacheVerificationComplete(isValid);
     
@@ -408,6 +434,7 @@ CacheVerificationWorker::CacheVerificationWorker(QObject *parent)
 void CacheVerificationWorker::verifyCacheFile(const QString& fileName, const QByteArray& expectedHash)
 {
     bool isValid = false;
+    QByteArray computedHash;
     
     if (!expectedHash.isEmpty() && !fileName.isEmpty()) {
         QFile cacheFile(fileName);
@@ -453,14 +480,14 @@ void CacheVerificationWorker::verifyCacheFile(const QString& fileName, const QBy
             
             cacheFile.close();
             
-            QByteArray computedHash = hash.result().toHex();
+            computedHash = hash.result().toHex();
             isValid = (computedHash == expectedHash);
         } else {
             qDebug() << "Cache file missing or inaccessible:" << fileName;
         }
     }
     
-    emit verificationComplete(isValid, fileName, expectedHash);
+    emit verificationComplete(isValid, fileName, expectedHash, computedHash);
 }
 
 void CacheVerificationWorker::checkDiskSpace()

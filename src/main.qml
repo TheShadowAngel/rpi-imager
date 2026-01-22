@@ -10,6 +10,7 @@ import QtQuick.Layouts
 import QtQuick.Controls.Material
 import "qmlcomponents"
 import "wizard"
+import "wizard/dialogs"
 
 import RpiImager
 
@@ -31,7 +32,24 @@ ApplicationWindow {
     minimumWidth: imageWriter.isEmbeddedMode() ? -1 : 680
     minimumHeight: imageWriter.isEmbeddedMode() ? -1 : 420
 
-    title: qsTr("Raspberry Pi Imager %1").arg(imageWriter.constantVersion())
+    // Track custom repo host for title display
+    property string customRepoHost: imageWriter.customRepoHost()
+    
+    // Track offline state for title display (derived from whether OS list data is available)
+    property bool isOffline: imageWriter.isOsListUnavailable
+    
+    title: {
+        var baseTitle = qsTr("Raspberry Pi Imager %1").arg(imageWriter.constantVersion())
+        if (isOffline) {
+            baseTitle += " — " + qsTr("Offline")
+        }
+
+        if (customRepoHost.length > 0) {
+            baseTitle += " — " + qsTr("Using data from %1").arg(customRepoHost)
+        }
+
+        return baseTitle
+    }
 
     Component.onCompleted: {
         // Set the main window for modal file dialogs
@@ -68,6 +86,17 @@ ApplicationWindow {
             }
         }
     }
+    
+    // Secret keyboard shortcut to open debug options (Cmd+Option+S on macOS, Ctrl+Alt+S on others)
+    Shortcut {
+        sequence: "Ctrl+Alt+S"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            console.log("Opening debug options dialog...")
+            debugOptionsDialog.initialize()
+            debugOptionsDialog.open()
+        }
+    }
 
     // Main wizard interface
     Rectangle {
@@ -87,6 +116,15 @@ ApplicationWindow {
             onWizardCompleted: {
                 // Reset to start of wizard or close application
                 wizardContainer.currentStep = 0;
+            }
+            
+            onUpdatePopupRequested: function(updateUrl, version) {
+                if (!window.updatePopupShown) {
+                    window.updatePopupShown = true
+                    updatepopup.url = updateUrl
+                    updatepopup.version = version
+                    updatepopup.open()
+                }
             }
         }
     }
@@ -337,6 +375,9 @@ ApplicationWindow {
         }
     }
 
+    // Track whether update popup has been shown this session
+    property bool updatePopupShown: false
+
     UpdateAvailableDialog {
         id: updatepopup
         imageWriter: window.imageWriter
@@ -427,6 +468,10 @@ ApplicationWindow {
                 accessibleDescription: qsTr("Install system authorization to allow Raspberry Pi Imager to run with elevated privileges")
                 activeFocusOnTab: true
                 visible: permissionWarningDialog.imageWriter && permissionWarningDialog.imageWriter.isElevatableBundle()
+                // Make button wide enough to fit the text, with sensible bounds
+                Layout.minimumWidth: Style.buttonWidthMinimum
+                Layout.maximumWidth: Style.buttonWidthMinimum * 2  // Cap at 2x to handle long translations
+                implicitWidth: Math.max(Style.buttonWidthMinimum, implicitContentWidth + leftPadding + rightPadding)
                 onClicked: {
                     if (permissionWarningDialog.imageWriter.installElevationPolicy()) {
                         // Policy installed successfully - restart with elevated privileges
@@ -447,6 +492,13 @@ ApplicationWindow {
 
     AppOptionsDialog {
         id: appOptionsDialog
+        parent: overlayRoot
+        imageWriter: window.imageWriter
+        wizardContainer: wizardContainer
+    }
+
+    DebugOptionsDialog {
+        id: debugOptionsDialog
         parent: overlayRoot
         imageWriter: window.imageWriter
         wizardContainer: wizardContainer
@@ -487,12 +539,22 @@ ApplicationWindow {
             performanceSaveDialog.folder = folderUrl
             performanceSaveDialog.open()
         }
+        
+        // Update title when custom repository changes
+        function onCustomRepoChanged() {
+            window.customRepoHost = imageWriter.customRepoHost()
+        }
     }
 
     /* Slots for signals imagewrite emits */
     function onDownloadProgress(now, total) {
         // Forward to wizard container
         wizardContainer.onDownloadProgress(now, total);
+    }
+
+    function onWriteProgress(now, total) {
+        // Forward to wizard container
+        wizardContainer.onWriteProgress(now, total);
     }
 
     function onVerifyProgress(now, total) {
@@ -568,13 +630,6 @@ ApplicationWindow {
         }
     }
     
-    function onOsListFetchFailed() {
-        // Network fetch failed - skip device selection and go straight to OS selection
-        if (wizardContainer && wizardContainer.currentStep === wizardContainer.stepDeviceSelection) {
-            console.log("OS list fetch failed - switching to offline mode, skipping device selection");
-            wizardContainer.jumpToStep(wizardContainer.stepOSSelection);
-        }
-    }
     
     function onPermissionWarning(message) {
         permissionWarningDialog.showWarning(message);

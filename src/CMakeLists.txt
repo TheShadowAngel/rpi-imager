@@ -250,14 +250,14 @@ set(SOURCES_BASE ${PLATFORM_SOURCES} "main.cpp"
     "driveformatthread.cpp" "localfileextractthread.cpp" "downloadstatstelemetry.cpp" "dependencies/sha256crypt/sha256crypt.c" "cli.cpp"
     "disk_formatter.cpp" "file_operations.cpp" "cachemanager.cpp" "systemmemorymanager.cpp" "imageadvancedoptions.cpp"
     "customization_generator.cpp" "platformhelper.cpp" "suspend_inhibitor.cpp" "secureboot.cpp" "asynccachewriter.cpp" "ringbuffer.cpp"
-    "performancestats.cpp")
+    "performancestats.cpp" "curlnetworkconfig.cpp" "curlfetcher.cpp" "writeprogresswatchdog.cpp")
 
 # Add GUI-specific sources only for non-CLI builds
 if(BUILD_CLI_ONLY)
     # CLI builds need imagewriter but not the GUI components
     set(SOURCES ${SOURCES_BASE} "imagewriter.cpp" "hwlistmodel.cpp" "oslistmodel.cpp")
 else()
-    set(SOURCES ${SOURCES_BASE} "networkaccessmanagerfactory.cpp" "qml.qrc" "nativefiledialog.cpp" "iconimageprovider.cpp")
+    set(SOURCES ${SOURCES_BASE} "networkaccessmanagerfactory.cpp" "qml.qrc" "nativefiledialog.cpp" "iconimageprovider.cpp" "iconmultifetcher.cpp")
 endif()
 
 if(BUILD_EMBEDDED)
@@ -327,21 +327,11 @@ set(SOURCES ${SOURCES} "${CMAKE_CURRENT_BINARY_DIR}/translations.qrc" ${QM_FILES
 option(GENERATE_TIMEZONES_FROM_IANA "Generate timezone list from latest IANA data" ON)
 
 if(GENERATE_TIMEZONES_FROM_IANA)
-    set(TZDATA_VERSION "2025b") # Update this to get newer timezone data
+    set(TZDATA_VERSION "2025c") # Update this to get newer timezone data
     set(TZDATA_URL "https://data.iana.org/time-zones/releases/tzdata${TZDATA_VERSION}.tar.gz")
 
-    # Reuse the helper to produce a generated qrc aliasing timezones.txt
-    # Always create/update a placeholder for clean builds so rcc can parse generated qrc
-    set(GENERATED_TIMEZONES_FILE_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/timezones_generated.txt")
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/timezones.txt")
-        configure_file(
-            "${CMAKE_CURRENT_SOURCE_DIR}/timezones.txt"
-            "${GENERATED_TIMEZONES_FILE_PLACEHOLDER}"
-            COPYONLY
-        )
-    else()
-        file(WRITE "${GENERATED_TIMEZONES_FILE_PLACEHOLDER}" "# placeholder\n")
-    endif()
+    # The generator script handles fallback internally - it downloads from API
+    # and falls back to the source file if the download fails (offline builds)
     add_generated_resource_with_fallback(GENERATED_TZ_QRC GENERATE_TIMEZONES_TGT timezones
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateTimezones.cmake
         timezones_generated.txt timezones.txt
@@ -357,17 +347,9 @@ option(GENERATE_COUNTRIES_FROM_REGDB "Generate countries list from latest wirele
 
 if(GENERATE_COUNTRIES_FROM_REGDB)
     set(REGDB_URL "https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git/plain/db.txt")
-    # Always create/update a placeholder for clean builds so rcc can parse generated qrc
-    set(GENERATED_COUNTRIES_FILE_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/countries_generated.txt")
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/countries.txt")
-        configure_file(
-            "${CMAKE_CURRENT_SOURCE_DIR}/countries.txt"
-            "${GENERATED_COUNTRIES_FILE_PLACEHOLDER}"
-            COPYONLY
-        )
-    else()
-        file(WRITE "${GENERATED_COUNTRIES_FILE_PLACEHOLDER}" "# placeholder\n")
-    endif()
+
+    # The generator script handles fallback internally - it downloads from API
+    # and falls back to the source file if the download fails (offline builds)
     add_generated_resource_with_fallback(GENERATED_COUNTRIES_QRC GENERATE_COUNTRIES_TGT countries
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateRegdbCountries.cmake
         countries_generated.txt countries.txt
@@ -381,17 +363,9 @@ option(GENERATE_CAPITAL_CITIES "Generate capital cities list from REST Countries
 
 if(GENERATE_CAPITAL_CITIES)
     set(REST_COUNTRIES_URL "https://restcountries.com/v3.1/all?fields=name,capital,cca2,timezones")
-    # Always create/update a placeholder for clean builds so rcc can parse generated qrc
-    set(GENERATED_CAPITAL_CITIES_FILE_PLACEHOLDER "${CMAKE_CURRENT_BINARY_DIR}/capital-cities_generated.txt")
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/capital-cities.txt")
-        configure_file(
-            "${CMAKE_CURRENT_SOURCE_DIR}/capital-cities.txt"
-            "${GENERATED_CAPITAL_CITIES_FILE_PLACEHOLDER}"
-            COPYONLY
-        )
-    else()
-        file(WRITE "${GENERATED_CAPITAL_CITIES_FILE_PLACEHOLDER}" "# placeholder\n")
-    endif()
+
+    # The generator script handles fallback internally - it downloads from API
+    # and falls back to the source file if the download fails (offline builds)
     add_generated_resource_with_fallback(GENERATED_CAPITAL_CITIES_QRC GENERATE_CAPITAL_CITIES_TGT capital-cities
         ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateCapitalCities.cmake
         capital-cities_generated.txt capital-cities.txt
@@ -443,10 +417,8 @@ if(GENERATE_COUNTRIES_FROM_REGDB AND DEFINED GENERATE_COUNTRIES_TGT)
     set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY AUTOGEN_TARGET_DEPENDS ${GENERATE_COUNTRIES_TGT})
 endif()
 
-# Add Icon Composer dependency for macOS dark mode icons
-if(APPLE AND DEFINED ICON_COMPOSER_TARGET AND NOT "${ICON_COMPOSER_TARGET}" STREQUAL "")
-    add_dependencies(${PROJECT_NAME} ${ICON_COMPOSER_TARGET})
-endif()
+# Note: Icon Composer compilation for macOS dark mode icons is handled in
+# mac/PlatformPackaging.cmake as a POST_BUILD step after macdeployqt runs
 
 if(ENABLE_TELEMETRY)
     add_definitions(-DTELEMETRY_ENABLED_DEFAULT=true)
@@ -484,6 +456,7 @@ if(NOT BUILD_CLI_ONLY)
         wizard/dialogs/UpdateAvailableDialog.qml
         wizard/dialogs/RepositoryDialog.qml
         wizard/dialogs/AppOptionsDialog.qml
+        wizard/dialogs/DebugOptionsDialog.qml
         wizard/LanguageSelectionStep.qml
         qmlcomponents/BaseDialog.qml
         qmlcomponents/ImButton.qml
@@ -500,6 +473,7 @@ if(NOT BUILD_CLI_ONLY)
         qmlcomponents/ImTextField.qml
         qmlcomponents/ImPasswordField.qml
         qmlcomponents/ImToggleTab.qml
+        qmlcomponents/MarqueeText.qml
         qmlcomponents/SelectionListView.qml
         qmlcomponents/OSSelectionListView.qml
         wizard/WizardStepBase.qml

@@ -20,6 +20,44 @@
 #include <iostream>
 #include <QProcess>
 
+namespace {
+    // Network monitoring state
+    HANDLE g_notificationHandle = NULL;
+    PlatformQuirks::NetworkStatusCallback g_networkCallback = nullptr;
+    CRITICAL_SECTION g_callbackLock;
+    INIT_ONCE g_callbackLockInitOnce = INIT_ONCE_STATIC_INIT;
+    
+    BOOL CALLBACK initCallbackLockOnce(PINIT_ONCE initOnce, PVOID param, PVOID* context) {
+        (void)initOnce;
+        (void)param;
+        (void)context;
+        InitializeCriticalSection(&g_callbackLock);
+        return TRUE;
+    }
+    
+    void initCallbackLock() {
+        InitOnceExecuteOnce(&g_callbackLockInitOnce, initCallbackLockOnce, nullptr, nullptr);
+    }
+    
+    void NETIOAPI_API_ networkChangeCallback(PVOID callerContext, PMIB_IPINTERFACE_ROW row, MIB_NOTIFICATION_TYPE notificationType) {
+        (void)callerContext;
+        (void)row;
+        (void)notificationType;
+        
+        // Ensure lock is initialized (safe to call multiple times)
+        initCallbackLock();
+        
+        EnterCriticalSection(&g_callbackLock);
+        if (g_networkCallback) {
+            // Check current network status
+            bool isAvailable = PlatformQuirks::hasNetworkConnectivity();
+            fprintf(stderr, "Network status changed: available=%d\n", isAvailable);
+            g_networkCallback(isAvailable);
+        }
+        LeaveCriticalSection(&g_callbackLock);
+    }
+}
+
 namespace PlatformQuirks {
 
 static bool hasNvidiaGraphicsCard() {
@@ -201,6 +239,11 @@ void beep() {
     MessageBeep(MB_OK);
 }
 
+bool isBeepAvailable() {
+    // Windows MessageBeep is always available via kernel32.dll
+    return true;
+}
+
 bool hasNetworkConnectivity() {
     // Use Windows API to check network connectivity
     // Check if any network adapter has an IP address
@@ -253,6 +296,49 @@ bool hasNetworkConnectivity() {
 bool isNetworkReady() {
     // On Windows, no special time sync check needed - system time is reliable
     return hasNetworkConnectivity();
+}
+
+void startNetworkMonitoring(NetworkStatusCallback callback) {
+    // Stop any existing monitoring
+    stopNetworkMonitoring();
+    
+    // Initialize lock if needed and set callback
+    initCallbackLock();
+    EnterCriticalSection(&g_callbackLock);
+    g_networkCallback = callback;
+    LeaveCriticalSection(&g_callbackLock);
+    
+    // Register for IP interface change notifications
+    DWORD result = NotifyIpInterfaceChange(
+        AF_UNSPEC,              // Monitor both IPv4 and IPv6
+        networkChangeCallback,  // Callback function
+        nullptr,                // Context (not used)
+        FALSE,                  // Don't trigger initial notification
+        &g_notificationHandle
+    );
+    
+    if (result != NO_ERROR) {
+        fprintf(stderr, "Failed to register network change notification: %lu\n", result);
+        g_notificationHandle = NULL;
+        return;
+    }
+    
+    fprintf(stderr, "Network monitoring started\n");
+}
+
+void stopNetworkMonitoring() {
+    if (g_notificationHandle) {
+        CancelMibChangeNotify2(g_notificationHandle);
+        g_notificationHandle = NULL;
+        fprintf(stderr, "Network monitoring stopped\n");
+    }
+    
+    // Clear callback under lock to prevent race with callback thread
+    // initCallbackLock is safe to call even if never initialized
+    initCallbackLock();
+    EnterCriticalSection(&g_callbackLock);
+    g_networkCallback = nullptr;
+    LeaveCriticalSection(&g_callbackLock);
 }
 
 void bringWindowToForeground(void* windowHandle) {
@@ -387,6 +473,17 @@ bool isScrollInverted(bool qtInvertedFlag) {
     
     // 0 = natural scrolling (invert), 1 = traditional (don't invert)
     return scrollDirection == 0;
+}
+
+QString getWriteDevicePath(const QString& devicePath) {
+    // Windows uses PhysicalDrive paths which don't have a raw device equivalent.
+    // Direct I/O is controlled via FILE_FLAG_NO_BUFFERING, not device path.
+    return devicePath;
+}
+
+QString getEjectDevicePath(const QString& devicePath) {
+    // No path transformation needed on Windows.
+    return devicePath;
 }
 
 } // namespace PlatformQuirks
